@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="zh-CN" data-generated-by="my-render-design-html">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>会话花费估算插件</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&amp;icon_names=account_tree,code,data_object,folder,payments,route,rule,summarize&amp;display=block">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/styles/github.min.css" media="(prefers-color-scheme: light)">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
+  <script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/highlight.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --system-accent: #2f6f5e;
+      --accent: var(--project-accent, var(--system-accent));
+      --page: #f7f8fa;
+      --panel: #fff;
+      --soft: #eff1f5;
+      --ink: #172132;
+      --muted: #515d6d;
+      --line: #d9dee7;
+      font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--page);
+      color: var(--ink);
+    }
+    @supports (color: AccentColor) {
+      :root { --system-accent: AccentColor; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #12161e;
+        --panel: #1a202b;
+        --soft: #222a38;
+        --ink: #edf0f5;
+        --muted: #b1bdd0;
+        --line: #384353;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      max-width: 76rem;
+      margin: 0 auto;
+      padding: 0 clamp(1rem, 4vw, 3.5rem);
+      line-height: 1.7;
+      accent-color: var(--accent);
+      background: var(--page);
+    }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    a { color: inherit; text-decoration-color: var(--accent); text-underline-offset: .25em; }
+    p, ul { margin: .6rem 0 0; }
+    h1, h2, h3 { margin: 0; line-height: 1.25; }
+    h1 { font-size: clamp(2.35rem, 4.4vw, 3.75rem); letter-spacing: -.045em; text-wrap: balance; }
+    h2 { font-size: clamp(1.45rem, 3vw, 2rem); }
+    h3 { font-size: 1.12rem; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+      gap: clamp(1.25rem, 4vw, 3rem);
+      align-items: center;
+      padding-block: clamp(2.5rem, 8vw, 6rem) clamp(1.75rem, 5vw, 3.5rem);
+      border-top: 4px solid var(--accent);
+    }
+    .eyebrow { margin: 0 0 .8rem; color: var(--muted); font-size: .85rem; font-weight: 650; }
+    .lead { max-width: 32em; margin-top: 1rem; color: var(--muted); font-size: 1.1rem; }
+    .hero-graphic, .diagram, .table-scroll {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--panel);
+    }
+    .hero-graphic { margin: 0; padding: clamp(.6rem, 1.6vw, 1.15rem); }
+    .hero-graphic svg { display: block; width: 100%; height: auto; color: var(--ink); }
+    .hero-graphic .track { fill: none; stroke: var(--line); }
+    .hero-graphic .route { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+    .hero-graphic .route-dim { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 5 4; }
+    .hero-graphic .arrow { fill: var(--accent); }
+    .hero-graphic .arrow-dim { fill: var(--muted); }
+    .hero-graphic .node { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+    .hero-graphic .node-primary { fill: var(--soft); stroke: var(--accent); stroke-width: 2; }
+    .hero-graphic .node-kind { fill: var(--muted); font-size: 14px; }
+    .hero-graphic .node-label { fill: currentColor; font-size: 19px; font-weight: 650; }
+    .hero-graphic .zone { fill: var(--muted); font-size: 13px; }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem 1.25rem;
+      padding-block: .8rem;
+      border-block: 1px solid var(--line);
+      font-size: .92rem;
+    }
+    main { padding-bottom: 4rem; }
+    section { padding-block: clamp(1.55rem, 4vw, 2.75rem); border-bottom: 1px solid var(--line); }
+    section > p, section > ul { max-width: 58em; }
+    section > h3 { margin-top: 1.4rem; }
+    figure { margin: 1rem 0 0; }
+    .diagram, .table-scroll { padding: clamp(.75rem, 2vw, 1.25rem); }
+    .diagram-output, .table-scroll, pre { overflow-x: auto; }
+    .diagram-output > svg {
+      display: block;
+      width: clamp(calc(var(--diagram-width) * .85), 100%, var(--diagram-width));
+      max-width: none !important;
+      height: auto;
+      margin-inline: auto;
+    }
+    figcaption, summary { color: var(--muted); font-size: .9rem; }
+    .diagram-output:not([hidden]) + figcaption { margin-top: .8rem; }
+    summary { cursor: pointer; margin-top: .45rem; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    pre, code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+    pre {
+      margin: .7rem 0 0;
+      padding: .9rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: .65rem;
+      background: var(--soft);
+      font-size: .88rem;
+      line-height: 1.6;
+      tab-size: 2;
+    }
+    pre > code.hljs { padding: 0; background: transparent; }
+    :not(pre) > code { overflow-wrap: anywhere; }
+    .tag { display: inline-block; margin-inline-end: .4rem; padding: 0 .45rem; border: 1px solid var(--accent); border-radius: .4rem; color: var(--accent); font-size: .78rem; font-weight: 650; }
+    .material-symbols-outlined { display: none; }
+    .symbols-ready .material-symbols-outlined {
+      display: inline-block;
+      margin-inline-end: .4rem;
+      vertical-align: -.12em;
+      color: var(--muted);
+      font: normal 1.25rem/1 "Material Symbols Outlined";
+      font-feature-settings: "liga";
+      white-space: nowrap;
+    }
+    @media (max-width: 46rem) {
+      .hero { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">技术方案 · 开发者审阅</p>
+      <h1>会话花费估算插件</h1>
+      <p class="lead">在会话视图新增一个“花费”页签：浏览器端从已加载的会话事件中为每一步找出模型与时段，按单价换算成人民币，汇总出每轮花费、会话合计和缓存节省。</p>
+    </div>
+    <figure class="hero-graphic">
+      <svg viewBox="0 0 530 250" role="img" aria-labelledby="hero-title hero-desc">
+        <title id="hero-title">每一步的模型从前一条请求头推出</title>
+        <desc id="hero-desc">request/header 记录模型，后续步骤的 assistant/message 继承最近一条请求头的模型，再与单价表一起计价。</desc>
+        <defs>
+          <marker id="hero-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path class="arrow" d="M0 0 L8 4 L0 8 Z"></path>
+          </marker>
+          <marker id="hero-arrow-dim" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path class="arrow-dim" d="M0 0 L8 4 L0 8 Z"></path>
+          </marker>
+        </defs>
+        <text class="zone" x="18" y="24">会话事件（按 seq）</text>
+        <path class="track" d="M18 36H512" stroke-dasharray="4 5"></path>
+        <rect class="node" x="14" y="52" width="150" height="62" rx="10"></rect>
+        <rect class="node" x="190" y="52" width="150" height="62" rx="10"></rect>
+        <rect class="node" x="366" y="52" width="150" height="62" rx="10"></rect>
+        <path class="route-dim" d="M165 83H188" marker-end="url(#hero-arrow-dim)"></path>
+        <path class="route-dim" d="M341 83H364" marker-end="url(#hero-arrow-dim)"></path>
+        <path class="route" d="M89 115 C 89 150, 265 140, 265 172" marker-end="url(#hero-arrow)"></path>
+        <path class="route" d="M265 115V172" marker-end="url(#hero-arrow)"></path>
+        <path class="route" d="M441 115 C 441 150, 265 140, 265 172" marker-end="url(#hero-arrow)"></path>
+        <rect class="node-primary" x="160" y="174" width="210" height="62" rx="12"></rect>
+        <g text-anchor="middle">
+          <text class="node-kind" x="89" y="76">request/header</text>
+          <text class="node-label" x="89" y="101">模型</text>
+          <text class="node-kind" x="265" y="76">step/start</text>
+          <text class="node-label" x="265" y="101">时段</text>
+          <text class="node-kind" x="441" y="76">assistant/message</text>
+          <text class="node-label" x="441" y="101">token 用量</text>
+          <text class="node-kind" x="265" y="198">单价表（配置 &gt; 内置）</text>
+          <text class="node-label" x="265" y="223">单步花费 ¥</text>
+        </g>
+      </svg>
+      <figcaption>模型只在变化时记入请求头，每一步取它之前最近一条请求头的模型。</figcaption>
+    </figure>
+  </header>
+  <nav aria-label="页内目录">
+    <a href="#background">背景与原则</a>
+    <a href="#architecture">整体架构</a>
+    <a href="#flow">数据流程</a>
+    <a href="#model">模型归属</a>
+    <a href="#types">类型与模块</a>
+    <a href="#files">变更文件</a>
+    <a href="#code">核心代码</a>
+    <a href="#summary">方案小结</a>
+  </nav>
+  <main>
+    <section id="background">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">payments</span>背景与设计原则</h2>
+      <p>DSH 现有界面只显示 token 数。DeepSeek 按模型、缓存是否命中、输入或输出、高峰或空闲时段分别计价，用户无法从 token 数心算出花费。</p>
+      <ul>
+        <li><strong>零宿主改动</strong>：不新增会话事件、投影或服务。模型 ID 从已有的 <code>request/header</code> 推出，时间取自 <code>step/start</code>。</li>
+        <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-experimental-client-ui-cost</code>，页签注册、Definition 与 view target、分页的写法都照搬 <code>client-ui-stats</code>。只通过 <code>--patch</code> overlay 挂载。</li>
+        <li><strong>规则集中在纯函数</strong>：时段、取价、计价、汇总、金额格式都在 <code>cost-pricing.ts</code> 和 <code>cost-format.ts</code> 中，与界面分离，便于逐条单测。</li>
+        <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数或非数字会让插件启动失败并报出字段路径。</li>
+        <li><strong>宁缺不错</strong>：推不出模型或没有单价的步骤不计入金额，在合计卡注明“不含 N 步未定价”。</li>
+      </ul>
+    </section>
+
+    <section id="architecture">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>整体架构</h2>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>宿主入口只把校验后的配置写入页面；其余工作都在浏览器端完成，模型投影只用作窗口内没有请求头时的回退。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>flowchart LR
+  accTitle: 插件模块与宿主、浏览器的边界
+  subgraph Host["宿主（Node）"]
+    YML["cordis.yml / overlay&lt;br/&gt;config.prices"] --&gt; HE["src/index.ts&lt;br/&gt;Config 校验"]
+    MS["modelSelection 投影（已有）"]
+  end
+  subgraph Page["浏览器"]
+    EV["会话事件窗口"] --&gt; DEF["cost-definition.ts&lt;br/&gt;cost-step / cost-route"]
+    DEF --&gt; BLD["cost-builder.ts&lt;br/&gt;按 seq 归属模型"]
+    BLD --&gt; VIEW["CostView.tsx"]
+    CFG["页面全局配置&lt;br/&gt;再次校验"] --&gt; PR["cost-pricing.ts&lt;br/&gt;时段 · 取价 · 汇总"]
+    VIEW --&gt; PR
+    PR --&gt; VIEW
+  end
+  HE -- "webserver/index-inject" --&gt; CFG
+  MS -. "useProjection" .-&gt; VIEW</pre>
+        </details>
+      </figure>
+    </section>
+
+    <section id="flow">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">route</span>数据流程</h2>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>会话事件经 Definition 折叠成节点，builder 归属模型，视图在 useMemo 中计价；新步骤完成或加载更早页时走同一条链路。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>sequenceDiagram
+  accTitle: 从会话事件到花费页签的数据流
+  participant S as 会话窗口
+  participant D as Definitions
+  participant B as CostSnapshotBuilder
+  participant V as CostView
+  participant P as priceSummary
+  S-&gt;&gt;D: step/start、assistant/message、request/header
+  D-&gt;&gt;B: CostStep 节点 / CostRoute 节点
+  B-&gt;&gt;B: attributeModels：每步取 seq 更小的最近一条 route
+  B--&gt;&gt;V: CostSnapshot（steps + windowHasHeader）
+  V-&gt;&gt;P: snapshot、价目表、modelSelection.lastUsed
+  P--&gt;&gt;V: 合计、节省、模型、未定价步数、每轮行
+  V-&gt;&gt;S: 点击“加载更早” → session.loadOlder()
+  S--&gt;&gt;D: prepend 更早事件，重新走一遍</pre>
+        </details>
+      </figure>
+      <ul>
+        <li>没有用量记录的步骤（取消、失败、进行中）不产生节点，既不计价，也不算作未定价。</li>
+        <li><code>step/start</code> 不在窗口内时，开始时间回退为 <code>assistant/message</code> 的时间。只有窗口第一步可能受影响。</li>
+        <li>页面全局配置缺失时按空配置处理，只用内置价；配置无效则在宿主加载时已经失败。</li>
+      </ul>
+    </section>
+
+    <section id="model">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">rule</span>模型归属与取价</h2>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>只有“窗口里有模型切换，且切换前的步骤排在窗口最前面”时才推不出模型；这类步骤计入未定价，加载更早轮次后自动恢复。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>flowchart TD
+  accTitle: 单步模型归属与计价分支
+  A["一步（带用量）"] --&gt; B{"窗口内在它之前&lt;br/&gt;有 request/header？"}
+  B -- 有 --&gt; M["模型 = 最近一条请求头的模型"]
+  B -- 没有 --&gt; C{"窗口内有任何&lt;br/&gt;request/header？"}
+  C -- 没有 --&gt; L["模型 = modelSelection.lastUsed"]
+  C -- 有 --&gt; U["模型未知 → 未定价"]
+  M --&gt; R{"配置或内置表&lt;br/&gt;有该模型？"}
+  L --&gt; R
+  R -- 否 --&gt; U
+  R -- 是 --&gt; T["北京时间判断高峰 / 空闲"]
+  T --&gt; X["花费 = Σ token × 单价 ÷ 10⁶&lt;br/&gt;节省 = 命中 × (未命中价 − 命中价) ÷ 10⁶"]</pre>
+        </details>
+      </figure>
+      <ul>
+        <li>高峰：北京时间周一至周五 [09:00, 12:00) 与 [14:00, 18:00)，其余为空闲。按 UTC+8 偏移计算，与浏览器时区无关；不识别节假日。</li>
+        <li>配置按模型整条提供（两个时段 × 三个单价），整条替换内置价；缓存写入 token 按未命中单价计价。</li>
+      </ul>
+    </section>
+
+    <section id="types">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">data_object</span>类型与模块</h2>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>builder 只输出事件归并结果，计价结果只在视图层生成；价目表是唯一的价格来源。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>classDiagram
+  accTitle: 花费插件的核心类型
+  class CostStep {
+    +number turn
+    +number step
+    +number startTime
+    +number messageSeq
+    +number miss
+    +number hit
+    +number write
+    +number output
+  }
+  class CostSnapshot {
+    +AttributedStep[] steps
+    +boolean windowHasHeader
+  }
+  class ModelPrices {
+    +UnitPrices peak
+    +UnitPrices offPeak
+  }
+  class UnitPrices {
+    +number cacheHit
+    +number cacheMiss
+    +number output
+  }
+  class CostSummary {
+    +number total
+    +number savings
+    +string[] models
+    +number pricedSteps
+    +number unpricedSteps
+    +CostTurnRow[] turns
+  }
+  class CostTurnRow {
+    +number turn
+    +number input
+    +number output
+    +number cost
+    +boolean partial
+  }
+  class AttributedStep {
+    +string model
+  }
+  CostStep &lt;|-- AttributedStep
+  CostSnapshot "1" o-- "*" AttributedStep
+  ModelPrices *-- UnitPrices
+  CostSummary "1" o-- "*" CostTurnRow</pre>
+        </details>
+      </figure>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">模块</th><th scope="col">职责</th></tr></thead>
+          <tbody>
+            <tr><td><code>cost-definition.ts</code></td><td>两个 Definition：<code>cost-step</code>（step/start 起，assistant/message 更新）与 <code>cost-route</code>（每条 request/header 一个节点）</td></tr>
+            <tr><td><code>cost-builder.ts</code></td><td>维护节点集合，<code>attributeModels()</code> 按 seq 为每步确定模型</td></tr>
+            <tr><td><code>cost-pricing.ts</code></td><td><code>BUILTIN_PRICES</code>、<code>pricePeriod</code>、<code>resolvePrices</code>、<code>priceStep</code>、<code>priceSummary</code></td></tr>
+            <tr><td><code>cost-format.ts</code></td><td>人民币金额格式、token 的 k / M 缩写</td></tr>
+            <tr><td><code>CostView.tsx</code></td><td>合计卡、部分加载提示、每轮明细表、空状态与全部未定价状态</td></tr>
+            <tr><td><code>src/index.ts</code> / <code>src/config.ts</code></td><td>宿主入口：校验 <code>prices</code> 并通过 <code>webserver/index-inject</code> 写入页面</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="files">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">folder</span>变更文件</h2>
+      <pre tabindex="0"><code class="language-diff">+ packages/experimental/client-ui-cost/
++   package.json                     # dsh.client.inject 与 exports，参照 client-ui-stats
++   tsconfig.json · tsdown.config.ts
++   README.md · README.zh.md · README.i18n.yaml   # 安装、配置、启动、验证
++   locale/{zh,en,ja,de,es,fr,pt,ru}.json         # 包元数据
++   src/index.ts · src/config.ts                   # 宿主入口与配置 schema
++   src/client/index.ts                            # 语言包、Definitions、view target、页签
++   src/client/cost-contract.ts · cost-definition.ts · cost-builder.ts
++   src/client/cost-pricing.ts · cost-format.ts
++   src/client/CostView.tsx · cost.module.css · locales.ts（8 种语言）
++   tests/*.client.spec.ts(x)                      # 逐文件 100% 覆盖
++ apps/web/tests/client-ui-cost.overlay.yml        # 启动验证用 overlay
+! tsconfig.base.json · tsconfig.client.json        # paths 与 references 登记
+! packages/experimental/README.md                  # 包列表
+! docs/config-catalog.md · docs/config-catalog.zh.md   # 由 gen-config-catalog 重新生成</code></pre>
+    </section>
+
+    <section id="code">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">code</span>核心代码</h2>
+      <h3><span class="tag">拟议代码</span><code>cost-builder.ts</code> · <code>attributeModels</code></h3>
+      <pre tabindex="0"><code class="language-ts">export function attributeModels(nodes: Iterable&lt;CostViewNode&gt;): CostSnapshot {
+  const routes: { seq: number; model: string }[] = []
+  const steps: CostStep[] = []
+  for (const node of nodes) {
+    switch (node.data.kind) {
+      case 'route': routes.push(node.data); break
+      case 'step': steps.push(node.data.step); break
+      default: assertNever(node.data)
+    }
+  }
+  routes.sort((a, b) =&gt; a.seq - b.seq)
+  steps.sort((a, b) =&gt; a.messageSeq - b.messageSeq)
+  let cursor = -1
+  const attributed = steps.map((step) =&gt; {
+    // 请求头在同一步内先于 assistant/message 写入，用严格小于
+    while (cursor + 1 &lt; routes.length &amp;&amp; routes[cursor + 1]!.seq &lt; step.messageSeq) cursor++
+    return { ...step, model: cursor &gt;= 0 ? routes[cursor]!.model : null }
+  })
+  return { steps: attributed, windowHasHeader: routes.length &gt; 0 }
+}</code></pre>
+
+      <h3><span class="tag">拟议代码</span><code>cost-pricing.ts</code> · 时段与单步计价</h3>
+      <pre tabindex="0"><code class="language-ts">const BEIJING_OFFSET_MS = 8 * 3_600_000
+
+export function pricePeriod(epochMs: number): PricePeriod {
+  const beijing = new Date(epochMs + BEIJING_OFFSET_MS)
+  const day = beijing.getUTCDay()                 // 0 = 周日
+  if (day === 0 || day === 6) return 'offPeak'
+  const minute = beijing.getUTCHours() * 60 + beijing.getUTCMinutes()
+  const peak = (minute &gt;= 540 &amp;&amp; minute &lt; 720) || (minute &gt;= 840 &amp;&amp; minute &lt; 1080)
+  return peak ? 'peak' : 'offPeak'
+}
+
+export function priceStep(step: CostStep, model: string | null, table: PriceTable) {
+  // hasOwn：防止 'toString' 等原型链上的键被当成模型
+  if (model === null || !Object.hasOwn(table, model)) return null
+  const unit = table[model]![pricePeriod(step.startTime)]
+  const cost = (step.miss * unit.cacheMiss + step.hit * unit.cacheHit
+    + step.write * unit.cacheMiss + step.output * unit.output) / 1_000_000
+  const savings = step.hit * (unit.cacheMiss - unit.cacheHit) / 1_000_000
+  return { cost, savings }
+}</code></pre>
+
+      <h3><span class="tag">拟议代码</span><code>cost-pricing.ts</code> · 汇总</h3>
+      <pre tabindex="0"><code class="language-ts">export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallbackModel: string | null): CostSummary {
+  // 只有窗口内没有任何请求头时，lastUsed 才能代表整个窗口的模型
+  const fallback = snapshot.windowHasHeader ? null : fallbackModel
+  const turns = new Map&lt;number, { input: number; output: number; cost: number; priced: number; unpriced: number }&gt;()
+  const models = new Set&lt;string&gt;()
+  let total = 0, savings = 0, pricedSteps = 0, unpricedSteps = 0
+  for (const step of snapshot.steps) {
+    const model = step.model ?? fallback
+    if (model !== null) models.add(model)
+    const row = turns.get(step.turn) ?? { input: 0, output: 0, cost: 0, priced: 0, unpriced: 0 }
+    row.input += step.miss + step.hit + step.write
+    row.output += step.output
+    const priced = priceStep(step, model, table)
+    if (priced === null) { row.unpriced++; unpricedSteps++ }
+    else { row.cost += priced.cost; row.priced++; total += priced.cost; savings += priced.savings; pricedSteps++ }
+    turns.set(step.turn, row)
+  }
+  return {
+    total, savings, models: [...models], pricedSteps, unpricedSteps,
+    turns: [...turns].sort(([a], [b]) =&gt; a - b).map(([turn, r]) =&gt; ({
+      turn, input: r.input, output: r.output,
+      cost: r.priced === 0 ? null : r.cost,          // 整轮未定价
+      partial: r.priced &gt; 0 &amp;&amp; r.unpriced &gt; 0,       // 部分未定价，金额后加标记
+    })),
+  }
+}</code></pre>
+
+      <h3><span class="tag">拟议代码</span><code>src/config.ts</code> · <code>src/index.ts</code> · 配置注入</h3>
+      <pre tabindex="0"><code class="language-ts">const unit = z.object({
+  cacheHit: z.number().min(0).required(),
+  cacheMiss: z.number().min(0).required(),
+  output: z.number().min(0).required(),
+})
+export const Config: z&lt;Partial&lt;Config&gt;, Config&gt; = z.object({
+  prices: z.dict(z.object({ peak: unit.required(), offPeak: unit.required() })).default({}),
+})
+
+// 宿主入口：不提供服务，只把校验后的配置写入页面
+export function apply(ctx: Context, config: Config): void {
+  ctx.on('webserver/index-inject', (table) =&gt; {
+    table.push({ kind: 'global', name: '__DSH_UI_COST_CONFIG__', value: config })
+  })
+}
+
+// 浏览器端：跨进程输入，用同一 schema 再校验一次；缺失时只用内置价
+const config = Config((globalThis as { __DSH_UI_COST_CONFIG__?: Partial&lt;Config&gt; }).__DSH_UI_COST_CONFIG__ ?? {})</code></pre>
+
+      <h3><span class="tag">拟议代码</span><code>cost-format.ts</code> · 金额格式</h3>
+      <pre tabindex="0"><code class="language-ts">export function formatYuan(value: number): string {
+  if (value &gt; 0 &amp;&amp; value &lt; 0.00005) return '&lt;¥0.0001'
+  // 4 位四舍五入会得到 1.0000 时改用 2 位
+  return value &gt;= 0.99995 ? `¥${value.toFixed(2)}` : `¥${value.toFixed(4)}`
+}</code></pre>
+    </section>
+
+    <section id="summary">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">summarize</span>方案小结</h2>
+      <p>本次新增一个独立的浏览器端实验插件，不改动现有事件、投影和服务：通过“每步取前一条请求头的模型”从已有日志中推出模型，计价规则集中在可单测的纯函数中。主要取舍是接受窗口最前段偶尔推不出模型（计入未定价，加载更早后恢复），以此避免修改核心事件格式和两套 SDK 快照。压缩摘要调用和失败重试消耗的 token 不在本次统计范围内，估算可能偏低。</p>
+    </section>
+  </main>
+  <script type="module">
+    window.hljs?.highlightAll();
+    document.fonts.load('20px "Material Symbols Outlined"').then(fonts => {
+      if (fonts.length) document.documentElement.classList.add('symbols-ready');
+    }).catch(() => {});
+
+    const diagrams = [...document.querySelectorAll('[data-diagram]')];
+    if (diagrams.length) {
+      try {
+        const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs');
+        const colorScheme = matchMedia('(prefers-color-scheme: dark)');
+        let pending = Promise.resolve();
+        let renderedTheme;
+
+        async function renderDiagrams() {
+          const theme = colorScheme.matches ? 'dark' : 'neutral';
+          if (theme === renderedTheme) return;
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            suppressErrorRendering: true,
+            htmlLabels: false,
+            theme,
+            fontFamily: getComputedStyle(document.body).fontFamily
+          });
+          for (const [index, figure] of diagrams.entries()) {
+            const output = figure.querySelector('.diagram-output');
+            const source = figure.querySelector('[data-mermaid]');
+            try {
+              const { svg } = await mermaid.render(`review-${theme}-${index + 1}`, source.textContent.trim());
+              output.innerHTML = svg;
+              const drawing = output.querySelector('svg');
+              drawing.style.setProperty('--diagram-width', `${drawing.viewBox.baseVal.width}px`);
+              output.hidden = false;
+              source.closest('details').hidden = true;
+            } catch (error) {
+              output.hidden = true;
+              source.closest('details').hidden = false;
+              console.warn('图表未能绘制', error);
+            }
+          }
+          renderedTheme = theme;
+        }
+
+        function scheduleRender() {
+          pending = pending.then(renderDiagrams);
+        }
+
+        colorScheme.addEventListener('change', scheduleRender);
+        scheduleRender();
+      } catch (error) {
+        console.warn('图表组件未能加载', error);
+      }
+    }
+  </script>
+</body>
+</html>
