@@ -94,7 +94,7 @@ export function attributeModels(nodes: Iterable<CostViewNode>): CostSnapshot {
 }
 ```
 
-`StatsSnapshotBuilder` 的 `replace` / `apply` 结构照搬：维护 `Map<key, node>`，每次变化后调用 `attributeModels(map.values())`。
+builder 沿用 `StatsSnapshotBuilder` 的 `replace` / `apply` 接口：维护 `Map<key, node>`，每次变化后调用 `attributeModels(map.values())`。只沿用接口，不复制代码；实现后由 `pnpm run duplication` 确认没有超过阈值的重复（同评审 P1-1 的检查）。
 
 审查点：
 
@@ -200,9 +200,14 @@ export function apply(ctx: Context, config: Config): void {
   })
 }
 
-// src/client/index.ts 中（进程边界输入，用同一 schema 再校验一次）
-const config = Config((globalThis as { __DSH_UI_COST_CONFIG__?: Partial<Config> }).__DSH_UI_COST_CONFIG__ ?? {})
-const prices = resolvePrices(config.prices)
+// src/client/index.ts 的 apply 开头（跨进程边界的输入，用同一 schema 再校验一次）
+const injected = (globalThis as { __DSH_UI_COST_CONFIG__?: Partial<Config> }).__DSH_UI_COST_CONFIG__
+if (injected === undefined) {
+  // D-09：宿主入口加载成功时总会注入配置；拿不到配置说明宿主入口未运行或配置无效，
+  // 不回退到内置价，否则会静默绕过 AC-15。抛错发生在任何注册之前，页签不会出现。
+  throw new Error('client-ui-cost: price configuration was not injected; the host entry did not run or its config is invalid')
+}
+const prices = resolvePrices(Config(injected).prices)
 ```
 
 示例 overlay（`apps/web/tests/client-ui-cost.overlay.yml`，也写入 README）：
@@ -223,6 +228,7 @@ const prices = resolvePrices(config.prices)
 - 待验证：schemastery 的 `z.number()` 能否拒绝 `NaN` 和 `Infinity`，以及 YAML 中的字符串 `"abc"` 是否会被强制转换。实现时写负例测试（对应 PRD AC-15，并断言错误信息包含字段路径）；如不拒绝，改用 `z.natural()` 风格的自定义校验。
 - 待验证：host 入口与 client 入口共享 `config.ts`，需要确认 tsdown 的两个产物都能打包 `@deepseek-ai/schemastery`。documentpreview 已有相同做法。
 - 全局变量名 `__DSH_UI_COST_CONFIG__` 是协议常量。
+- 待验证（T8）：宿主入口因配置无效加载失败后，浏览器端代码是否仍会下发（`packages/client/modules/src/index.ts:1046`）。无论结果如何，上面的检查都能保证页签不出现；T8 需要记录实际现象。
 
 ## 5. 视图要点（`CostView.tsx`）
 
@@ -232,12 +238,22 @@ const prices = resolvePrices(config.prices)
 const snapshot = useCost(value => value)
 const lastUsed = useProjection('modelSelection')?.lastUsed?.model ?? null
 const summary = useMemo(() => priceSummary(snapshot, prices, lastUsed), [snapshot, prices, lastUsed])
-const { hasMore } = useSession(s => ({ hasMore: s.hasMore }))   // 实际取法按 ui-session 标准 props 核对
+// D-08：inject 时把 SessionFace（本身是 getSnapshot/subscribe 形式的可观察快照）作为 hook 注入，
+// 视图只读两个字段；具体注入写法按 ui-session 标准 props 核对
+const hasMore = useSession(s => s.hasMore)
+const loadingOlder = useSession(s => s.loadingOlder)
+const [loadFailed, setLoadFailed] = useState(false)
+const onLoadEarlier = async (): Promise<void> => {
+  setLoadFailed(false)
+  // loadOlder() 在请求进行中时返回同一个完成结果，重复点击不会发出第二个请求；按钮在 loadingOlder 时也是禁用的
+  try { await loadOlder() } catch (error: unknown) { setLoadFailed(true); console.warn('client-ui-cost: loading earlier turns failed', error) }
+}
 if (snapshot.steps.length === 0) return <Empty text={t('empty')} />           // C-09
 const allUnpriced = summary.pricedSteps === 0                                   // C-10
 // 区域 A：allUnpriced ? t('allUnpriced') : formatYuan(summary.total) / formatYuan(summary.savings)
 //         unpricedSteps > 0 时追加 t('excludesUnpriced', { count })            // C-07
-// 区域 C：hasMore 时显示 t('partial', { count: summary.turns.length }) + 加载按钮（loadOlder 状态照搬 StatsView）
+// 区域 C：hasMore 时显示 t('partial', { count: summary.turns.length })；
+//         按钮 disabled={loadingOlder}，loadingOlder 时显示 t('loadOlder.loading')，loadFailed 时显示 t('loadOlder.failed') 并允许重试
 // 区域 B：<table><thead><tr><th scope="col">… 每行 cost === null ? t('unpriced') : formatYuan(cost) + (partial ? 标记 : '')
 ```
 
@@ -253,5 +269,5 @@ export function formatYuan(value: number): string {
 
 审查点：
 
-- `0.99995 ≤ value < 1` 时按 4 位四舍五入会得到 `1.0000`，因此改按 2 位显示为 `¥1.00`。这是对 BR-07"< ¥1 保留 4 位"的边界解释，评审时请确认。
+- `0.99995 ≤ value < 1` 时按 4 位四舍五入会得到 `1.0000`，因此改按 2 位显示为 `¥1.00`。这是对 BR-07"< ¥1 保留 4 位"的边界解释，已在评审 P2-2 中被负责人接受（2026-11-11），并已回写 PRD 的 BR-07 与 AC-12（含 0.99995 和 0.99994 两个样例）。
 - `toFixed` 对 `x.xx5` 这类二进制表示的值可能向下舍入，AC-12 的三个样例不受影响。

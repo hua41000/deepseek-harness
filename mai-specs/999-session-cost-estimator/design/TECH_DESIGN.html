@@ -198,7 +198,7 @@
       <p>DSH 现有界面只显示 token 数。DeepSeek 按模型、缓存是否命中、输入或输出、高峰或空闲时段分别计价，用户无法从 token 数心算出花费。</p>
       <ul>
         <li><strong>零宿主改动</strong>：不新增会话事件、投影或服务。模型 ID 从已有的 <code>request/header</code> 推出，时间取自 <code>step/start</code>。</li>
-        <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-experimental-client-ui-cost</code>，页签注册、Definition 与 view target、分页的写法都照搬 <code>client-ui-stats</code>。只通过 <code>--patch</code> overlay 挂载。</li>
+        <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-experimental-client-ui-cost</code>，页签注册、Definition 与 view target 的写法沿用 <code>client-ui-stats</code>；分页不照搬它，直接调用会话的 <code>loadOlder()</code>。只通过 <code>--patch</code> overlay 挂载。</li>
         <li><strong>规则集中在纯函数</strong>：时段、取价、计价、汇总、金额格式都在 <code>cost-pricing.ts</code> 和 <code>cost-format.ts</code> 中，与界面分离，便于逐条单测。</li>
         <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数、非数字或缺少字段都会让插件启动失败并报出字段路径，不会降级成未定价。</li>
         <li><strong>宁缺不错</strong>：推不出模型或没有单价的步骤不计入金额，在合计卡注明“不含 N 步未定价”。</li>
@@ -259,7 +259,8 @@
       <ul>
         <li>没有用量记录的步骤（取消、失败、进行中）不产生节点，既不计价，也不算作未定价。</li>
         <li><code>step/start</code> 不在窗口内时，开始时间回退为 <code>assistant/message</code> 的时间。只有窗口第一步可能受影响。</li>
-        <li>页面全局配置缺失时按空配置处理，只用内置价；配置无效则在宿主加载时已经失败。</li>
+        <li>配置无效时宿主加载失败；页面拿不到全局配置时，浏览器端也直接报错，不回退到内置价，页签不会出现。</li>
+        <li>“加载更早”按钮直接调用 <code>session.loadOlder()</code>，加载中和是否还有更早轮次分别读取会话快照的 <code>loadingOlder</code> 和 <code>hasMore</code>。</li>
       </ul>
     </section>
 
@@ -471,8 +472,13 @@ export function apply(ctx: Context, config: Config): void {
   })
 }
 
-// 浏览器端：跨进程输入，用同一 schema 再校验一次；缺失时只用内置价
-const config = Config((globalThis as { __DSH_UI_COST_CONFIG__?: Partial&lt;Config&gt; }).__DSH_UI_COST_CONFIG__ ?? {})</code></pre>
+// 浏览器端：跨进程输入，用同一 schema 再校验一次
+const injected = (globalThis as { __DSH_UI_COST_CONFIG__?: Partial&lt;Config&gt; }).__DSH_UI_COST_CONFIG__
+if (injected === undefined) {
+  // 宿主入口成功时总会注入；拿不到说明宿主入口未运行或配置无效，不回退到内置价
+  throw new Error('client-ui-cost: price configuration was not injected; the host entry did not run or its config is invalid')
+}
+const prices = resolvePrices(Config(injected).prices)</code></pre>
 
       <h3><span class="tag">拟议代码</span><code>cost-format.ts</code> · 金额格式</h3>
       <pre tabindex="0"><code class="language-ts">export function formatYuan(value: number): string {
