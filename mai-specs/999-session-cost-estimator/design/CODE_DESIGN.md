@@ -220,7 +220,7 @@ const prices = resolvePrices(config.prices)
 
 审查点：
 
-- 待验证：schemastery 的 `z.number()` 能否拒绝 `NaN` 和 `Infinity`，以及 YAML 中的字符串 `"abc"` 是否会被强制转换。实现时写一条负例测试；如不拒绝，改用 `z.natural()` 风格的自定义校验。
+- 待验证：schemastery 的 `z.number()` 能否拒绝 `NaN` 和 `Infinity`，以及 YAML 中的字符串 `"abc"` 是否会被强制转换。实现时写负例测试（对应 PRD AC-15，并断言错误信息包含字段路径）；如不拒绝，改用 `z.natural()` 风格的自定义校验。
 - 待验证：host 入口与 client 入口共享 `config.ts`，需要确认 tsdown 的两个产物都能打包 `@deepseek-ai/schemastery`。documentpreview 已有相同做法。
 - 全局变量名 `__DSH_UI_COST_CONFIG__` 是协议常量。
 

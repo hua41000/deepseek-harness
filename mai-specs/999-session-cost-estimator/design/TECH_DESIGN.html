@@ -200,7 +200,7 @@
         <li><strong>零宿主改动</strong>：不新增会话事件、投影或服务。模型 ID 从已有的 <code>request/header</code> 推出，时间取自 <code>step/start</code>。</li>
         <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-experimental-client-ui-cost</code>，页签注册、Definition 与 view target、分页的写法都照搬 <code>client-ui-stats</code>。只通过 <code>--patch</code> overlay 挂载。</li>
         <li><strong>规则集中在纯函数</strong>：时段、取价、计价、汇总、金额格式都在 <code>cost-pricing.ts</code> 和 <code>cost-format.ts</code> 中，与界面分离，便于逐条单测。</li>
-        <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数或非数字会让插件启动失败并报出字段路径。</li>
+        <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数、非数字或缺少字段都会让插件启动失败并报出字段路径，不会降级成未定价。</li>
         <li><strong>宁缺不错</strong>：推不出模型或没有单价的步骤不计入金额，在合计卡注明“不含 N 步未定价”。</li>
       </ul>
     </section>

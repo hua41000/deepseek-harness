@@ -25,4 +25,4 @@ DSH 只显示 token 用量，看不到花了多少钱
 
 - [素材索引](context/_INDEX.md)
 - [PRD](spec/PRD.md)：有效需求来源，AC-01～AC-15
-- [技术方案](design/TECH_DESIGN.md)（standard 模板，草案待评审）、[代码设计附录](design/CODE_DESIGN.md)、[HTML 审阅版](design/TECH_DESIGN.html)。T1～T9 共 9 项任务；待同步引用 PRD 新增的 AC-15；测试计划缺口已回传
+- [技术方案](design/TECH_DESIGN.md)（standard 模板，草案待评审）、[代码设计附录](design/CODE_DESIGN.md)、[HTML 审阅版](design/TECH_DESIGN.html)。T1～T9 共 9 项任务，已同步 PRD 的 AC-15；测试计划缺口已回传

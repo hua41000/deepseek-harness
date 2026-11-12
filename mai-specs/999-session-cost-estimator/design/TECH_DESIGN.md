@@ -1,12 +1,12 @@
 # 会话花费估算插件 技术方案
 
-> Feature：999 | 有效需求来源：[PRD](../spec/PRD.md)（draft，2026-11-11，AC-01～AC-14） | Profile：standard | 模板：`mai-specs/_templates/TECH_DESIGN.tmpl.md` | 代码基线：`homework-1-build-plugin` @ `b6d2551dc3` | 状态：草案（待评审）
+> Feature：999 | 有效需求来源：[PRD](../spec/PRD.md)（draft，2026-11-11，AC-01～AC-15） | Profile：standard | 模板：`mai-specs/_templates/TECH_DESIGN.tmpl.md` | 代码基线：`homework-1-build-plugin` @ `b6d2551dc3` | 状态：草案（待评审）
 
 [返回需求简报](../BRIEF.md) · [代码设计附录](CODE_DESIGN.md)
 
 ## 需求依据与验收
 
-需求与 AC 以 [PRD](../spec/PRD.md) 为唯一维护源，本文只引用编号：FR-01～FR-08、BR-01～BR-07、NFR-01～NFR-03、AC-01～AC-14、文案 C-01～C-11、内置价目表（R-01）。
+需求与 AC 以 [PRD](../spec/PRD.md) 为唯一维护源，本文只引用编号：FR-01～FR-08、BR-01～BR-07、NFR-01～NFR-03、AC-01～AC-15、文案 C-01～C-11、内置价目表（R-01）。
 
 本方案对 PRD 的待确认事项和需回改处的处理：
 
@@ -15,7 +15,7 @@
 | Q-04（阻塞项） | **可行，有限制**。步骤开始时间取 `step/start` 事件的 `time`。模型 ID 不在 `assistant/message` 上，只在模型或请求头**变化时**记入 `request/header`（`header.config.model`），同一步内先于 `assistant/message` 写入。浏览器端取"该步 `assistant/message` 之前最近一条 `request/header`"的模型。窗口内没有任何 `request/header` 时，用宿主投影 `modelSelection.lastUsed`。窗口内有 header，但某步在第一条 header 之前时，推不出模型 | `packages/core/session/src/types.ts`（`SessionEventMap`）、`packages/core/agent-loop/src/agent.ts` `buildRequest()`、`packages/core/agent/src/model-selection.ts` | 推不出模型的步骤**计入未定价**（2026-11-11 用户决定 D-04），沿用 C-07、C-11，不新增文案 |
 | Q-02 | DeepSeek 适配器把 `cache_creation_input_tokens` 映射为 `cacheWriteTokens`（`packages/llm/llm-deepseek/src/translate.ts`），DeepSeek 实际是否返回非 0 值，静态代码无法确认。BR-01 已按未命中单价覆盖该情况，不阻塞 | 同左 | 无；实现时用一次真实对话观察写入 token（任务 T9） |
 | Q-03 | 仓库测试 `scripts/locale-dictionary-parity.spec.ts` 要求对象形式词典注册全部 8 种已发布语言（`scripts/shipped-locales.ts`）。因此提供 zh、en、ja、de、es、fr、pt、ru 共 8 种 | 同左 | NFR-01 写的是"至少中英文"，8 种语言满足该要求，不需回改 |
-| PRD UI-01"错误"状态 | **改为加载时报错**（2026-11-11 用户决定 D-05）。单价配置由 schemastery 校验，负数或非数字会让插件加载失败，并报出字段路径。这符合 AGENTS.md "Misconfiguration fails loud at load" | AGENTS.md Conventions | **需回改 PRD**：UI-01"错误"条目改为"配置无效时插件加载失败并报错"。由编排者安排 `my-create-prd` |
+| PRD UI-01"错误"状态 | **改为加载时报错**（2026-11-11 用户决定 D-05）。单价配置由 schemastery 校验，负数或非数字会让插件加载失败，并报出字段路径。这符合 AGENTS.md "Misconfiguration fails loud at load" | AGENTS.md Conventions | **已同步**（2026-11-11，PRD commit `195a9e7bed`）：PRD UI-01"错误"状态已改为"单价配置无效时插件加载失败并报出出错字段"，并新增 AC-15 |
 | Q-01 | 按 BR-03 实现，不影响设计结构 | — | 仍待负责人确认，不阻塞 |
 
 ## 1. 方案概述
@@ -23,7 +23,7 @@
 ### 1.1 设计目标和设计原则
 
 - **用户路径**：启用插件，打开会话，切换到"花费"页签，查看合计卡与每轮明细（BF-01）。加载更早轮次后合计更新（FR-07）；新步骤完成后金额实时更新（FR-08）。
-- **成功标准**：AC-01～AC-14。计价、时段、格式、合并模型等规则用纯函数单元测试覆盖（AC-02～AC-08、AC-11、AC-12）；页签可见、分页、实时更新和 README 按人工步骤验收（AC-01、AC-09、AC-10、AC-14）。
+- **成功标准**：AC-01～AC-15。计价、时段、格式、合并模型等规则用纯函数单元测试覆盖（AC-02～AC-08、AC-11、AC-12）；配置校验用负例单元测试覆盖（AC-15）；页签可见、分页、实时更新、README，以及错误配置下的启动报错按人工步骤验收（AC-01、AC-09、AC-10、AC-14、AC-15）。
 - **不做**：沿用 PRD 第 7 章"不包含"。另外，本方案**不计**压缩摘要调用和失败重试尝试消耗的 token（PRD 只定义了"步骤"花费），见风险 R3。
 - **硬约束**：
   - 浏览器端只读取会话事件，不访问网络（NFR-02）。
@@ -74,7 +74,7 @@ flowchart LR
 | D-02 模型归属在浏览器端按 `request/header` 推导 | 不改核心事件，也不新增投影，零宿主改动 | 窗口最前段可能推不出模型（D-04）。备选：新增宿主投影，或在 `assistant/message` 上加 `model` 字段，但这会改 `SessionEventMap` 并牵动两套 SDK 快照，成本远超当前需求 | 已核实代码 | [CODE_DESIGN §2](CODE_DESIGN.md#2-模型归属cost-builderts) |
 | D-03 配置经宿主入口注入页面 | 仓库中已有且有文档说明的模式（documentpreview README："Settings are embedded in each served page"）。配置在宿主加载时校验 | 修改配置后需重启并刷新页面。备选：用户设置页编辑，需要新增设置存储和 UI，超出范围 | 已定 | [CODE_DESIGN §4](CODE_DESIGN.md#4-配置与宿主入口configts--indexts) |
 | D-04 推不出模型的步骤计入未定价 | 不新增状态和文案；加载更早轮次后自动消失 | "未定价"在这种情况下的含义略宽，README 中说明 | **用户已确认（2026-11-11）** | §2.1.2 |
-| D-05 无效单价加载时报错 | 遵循仓库硬规则 | 与 PRD UI-01"错误"状态不同 | **用户已确认（2026-11-11）**；PRD 待回改 | 需求依据表 |
+| D-05 无效单价加载时报错 | 遵循仓库硬规则 | 与 PRD UI-01"错误"状态不同 | **用户已确认（2026-11-11）**；PRD 已同步（UI-01、AC-15） | 需求依据表 |
 | D-06 配置按模型**整条**提供（两个时段 × 三个单价），整条替换内置价 | 语义简单：一个模型只有一个价格来源，无需字段级合并 | AC-07 中用户要写全 `deepseek-flash` 的 6 个数。备选：字段级合并，需定义合并与缺省规则，测试面翻倍 | 建议评审确认 | [CODE_DESIGN §4](CODE_DESIGN.md#4-配置与宿主入口configts--indexts) |
 | D-07 计价在视图层用 `useMemo` 计算，builder 只做事件归并 | builder 拿不到投影（`modelSelection`），视图拿得到；计价保持纯函数 | 每次快照变化重新计价，成本为 O(步数)，可接受 | — | [CODE_DESIGN §3](CODE_DESIGN.md#3-计价与汇总cost-pricingts) |
 
@@ -107,7 +107,7 @@ flowchart LR
 
 失败路径：
 
-- 配置无效时宿主加载失败（D-05）。
+- 配置无效时宿主加载失败，并报出出错字段（D-05、AC-15）。
 - 页面全局变量缺失（例如单独挂载了 client 入口）时按空配置处理，只用内置价。这是合法组合，不是错误。
 - 浏览器端仍用同一 schema 解析全局变量，因为这是进程边界的输入（AGENTS.md："validate at … process, and wire boundaries"）。
 
@@ -186,11 +186,11 @@ flowchart LR
 | T1 包骨架与登记 | §2.3.1 | 新增 `package.json`、`tsconfig.json`、`tsdown.config.ts`、`src/index.ts`（暂为空实现）、`src/client/index.ts`；修改 `tsconfig.base.json`、`tsconfig.client.json`、`packages/experimental/README.md` | — | `pnpm install`、`pnpm run typecheck`、`pnpm run hygiene` 通过 |
 | T2 计价与格式纯函数 | D-06、BR-01～BR-07 | 新增 `cost-contract.ts`、`cost-pricing.ts`、`cost-format.ts` | T1 | 单元测试覆盖 AC-02、AC-03（含边界 08:59:59、11:59:59、12:00:00、周六，以及非 UTC+8 的运行时区）、AC-04、AC-05、AC-06、AC-07、AC-12 |
 | T3 Definitions 与 builder | D-02、D-04 | 新增 `cost-definition.ts`、`cost-builder.ts` | T2 | 单元测试：模型归属（无 header、header 在中间、header 在开头）、无 usage 步骤（AC-11）、起点缺失回退（R2）、多轮排序（AC-08） |
-| T4 配置注入 | D-03、D-05 | 新增 `src/config.ts`；完善 `src/index.ts`；新增 `apps/web/tests/client-ui-cost.overlay.yml` | T2 | 测试：负数、非数字、缺字段时 `Config()` 抛错；全局变量缺失时按空配置处理 |
+| T4 配置注入 | D-03、D-05、AC-15 | 新增 `src/config.ts`；完善 `src/index.ts`；新增 `apps/web/tests/client-ui-cost.overlay.yml` | T2 | 单元测试覆盖 AC-15 的自动部分：负数、非数字（含 `NaN`、`Infinity` 和字符串）、缺少某个单价字段时，`Config()` 抛错，且错误信息包含出错的字段路径（如 `prices.deepseek-flash.peak.output`）；合法配置原样通过；全局变量缺失时按空配置处理 |
 | T5 视图与语言包 | UI-01、NFR-01、NFR-03 | 新增 `CostView.tsx`、`cost.module.css`、`locales.ts`、`locale/*.json`（8 种语言） | T3 | 视图测试覆盖空状态、全部未定价、部分未定价标记、`hasMore` 提示与加载；`verify-client-ui-i18n`、locale parity 测试通过（AC-13） |
 | T6 文档与生成产物 | AC-14 | 新增 README 三件套；重新生成 `docs/config-catalog*.md` | T4、T5 | `pnpm run doc-sync` 或 `pnpm run test:docs` 通过 |
 | T7 覆盖率与构建 | 仓库门槛 | `tests/*.client.spec.ts(x)` | T2～T5 | 新包 `src` 逐文件 100% 覆盖率；`pnpm run build:artifacts` 后 `build:check` 通过；`pnpm run duplication` 通过 |
-| T8 人工验收 | AC-01、AC-05、AC-09、AC-10、AC-14 | — | T7 | 按 README 用 `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml`（附加 `pin-browse-picker` overlay）启动，做一次真实对话并逐条记录观察结果 |
+| T8 人工验收 | AC-01、AC-05、AC-09、AC-10、AC-14、AC-15 | — | T7 | 按 README 用 `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml`（附加 `pin-browse-picker` overlay）启动，做一次真实对话并逐条记录观察结果。AC-15：在 overlay 中写入一个负数单价后启动，确认插件加载失败并报出该字段；改回合法值并重启后，页签恢复 |
 | T9 核实 Q-02 | BR-01 | — | T8 | 记录一次真实 DeepSeek 调用的 `cacheWriteTokens` 值，回写 PRD Q-02 |
 
 **测试计划缺口**（回传编排者）：项目中暂无 TEST_PLAN。AC-01、AC-09、AC-10、AC-14 只有人工步骤；可参照 `apps/web/tests/client-ui-stats-panel.e2e.ts` 增加一个 Web e2e，至少覆盖 AC-01、AC-09。是否增加由 `my-create-test-plan` 决定。另外，仓库要求"user-visible change 更新 keyless recorded-session snapshot"，而实验包不进入已发布 profile，是否适用需在 pre-push 阶段按 `snapshots/AGENTS.md` 确认。
