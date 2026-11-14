@@ -15,8 +15,8 @@
 | T3 Definitions 与 builder | 完成 | `ca6a08fd72` | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
 | T4 配置注入 | 完成 | `0e3bfda5a2` | 见下文；"不注册页签"的断言已在 T5 补充 |
 | T5 视图与语言包 | 完成 | `fcb6ad75ed` | 见下文；真实页面的浅色/深色与窄宽度检查未做，并入 T8 |
-| T6 文档与生成产物 | 完成，待提交 | — | 见下文；`doc-sync` 剩 2 项失败，均来自 `mai-specs/` |
-| T7 覆盖率与构建 | 未开始 | — | |
+| T6 文档与生成产物 | 完成 | `292b0ffb0f` | 见下文；`doc-sync` 剩 2 项失败，均来自 `mai-specs/` |
+| T7 覆盖率与构建 | 完成，待提交 | — | 见下文；只改了本报告，无代码变更 |
 | T8 人工验收 | 未开始 | — | |
 | T9 核实 Q-02、Q-05 | 未开始 | — | |
 
@@ -266,3 +266,18 @@
 | `pnpm run typecheck`；`run-oxlint`（本包、改动的脚本与生成文件）；`git diff --check` | 通过 |
 
 **待负责人决定**：`mai-specs/` 是作业流程目录，不属于 DSH 文档体系，但仓库的文档检查会扫描它，上述 2 项失败会一直存在。可选：把 `mai-specs/` 加入这两项检查的排除列表，或接受这两项失败并在 PR 中说明。本次未处理。
+
+## T7 覆盖率与构建
+
+T7 的测试文件已随 T2～T5 交付，本任务只做整体复核，没有代码变更。
+
+**验证（2026-11-13 实际执行，基线 `292b0ffb0f`）**
+
+| 命令 | 结果 |
+|---|---|
+| `vitest run packages/experimental/client-ui-cost --coverage --coverage.include='packages/experimental/client-ui-cost/src/**'` | 8 个测试文件、102 个用例全部通过；语句 189/189、分支 106/106、函数 53/53、行 163/163，均为 100%；仓库配置的逐文件 100% 阈值没有报错 |
+| `pnpm run build:artifacts`，随后 `pnpm run build:check` | 8/8、2/2 通过 |
+| `pnpm run duplication` | 0 处克隆 |
+| `pnpm run hygiene` | 23/24 通过；唯一失败为 `vendor rescope`，残留文件与 T1 记录的 4 个完全相同，本分支从 `50927f588e` 起的提交都没有改动它们 |
+
+**未运行**：全仓的 `pnpm run test:coverage`（CI 的覆盖率门槛）。按仓库 `AGENTS.md`"不默认跑全量、由 CI 负责穷尽覆盖"的规则，本地只跑了本包范围；推送后以 CI 结果为准。
