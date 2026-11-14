@@ -251,6 +251,7 @@ const onLoadEarlier = async (): Promise<void> => {
 if (snapshot.steps.length === 0) return <Empty text={t('empty')} />           // C-09
 const allUnpriced = summary.pricedSteps === 0                                   // C-10
 // 区域 A：allUnpriced ? t('allUnpriced') : formatYuan(summary.total) / formatYuan(summary.savings)
+//         两种情况都显示模型列表 summary.models（C-04；全部未定价时也显示，PRD B-01）
 //         unpricedSteps > 0 时追加 t('excludesUnpriced', { count })            // C-07
 // 区域 C：hasMore 时显示 t('partial', { count: summary.turns.length })；
 //         按钮 disabled={loadingOlder}，loadingOlder 时显示 t('loadOlder.loading')，loadFailed 时显示 t('loadOlder.failed') 并允许重试

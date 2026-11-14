@@ -16,7 +16,8 @@
 | Q-02 | DeepSeek 适配器把 `cache_creation_input_tokens` 映射为 `cacheWriteTokens`（`packages/llm/llm-deepseek/src/translate.ts`），DeepSeek 实际是否返回非 0 值，静态代码无法确认。BR-01 已按未命中单价覆盖该情况，不阻塞 | 同左 | 无；实现时用一次真实对话观察写入 token（任务 T9） |
 | Q-03 | 仓库测试 `scripts/locale-dictionary-parity.spec.ts` 要求对象形式词典注册全部 8 种已发布语言（`scripts/shipped-locales.ts`）。因此提供 zh、en、ja、de、es、fr、pt、ru 共 8 种 | 同左 | NFR-01 写的是"至少中英文"，8 种语言满足该要求，不需回改 |
 | PRD UI-01"错误"状态 | **改为加载时报错**（2026-11-11 用户决定 D-05）。单价配置由 schemastery 校验，负数或非数字会让插件加载失败，并报出字段路径。这符合 AGENTS.md "Misconfiguration fails loud at load" | AGENTS.md Conventions | **已同步**（2026-11-11，PRD commit `195a9e7bed`）：PRD UI-01"错误"状态已改为"单价配置无效时插件加载失败并报出出错字段"，并新增 AC-15 |
-| Q-01 | 按 BR-03 实现，不影响设计结构 | — | 仍待负责人确认，不阻塞 |
+| Q-01 | 按 BR-03 实现，不影响设计结构 | — | **已确认**（2026-11-13，PRD Q-01，测试计划 A-10） |
+| Q-05（PRD 2026-11-13 新增，测试计划 A-08） | 静态代码只能确认模型 ID 取自 `request/header` 的 `header.config.model`；实际值是否等于内置价目表的键，要用真实对话确认 | `packages/core/agent-loop/src/agent.ts` `buildRequest()` | 无；任务 T9 核对并回写 PRD |
 | BR-07 在 ¥1 附近的格式 | 0.99995 ≤ 金额 < 1 时，按 4 位四舍五入会得到 1.0000，因此改按 2 位显示为 `¥1.00`（[CODE_DESIGN §5](CODE_DESIGN.md#5-视图要点costviewtsx)） | 评审 P2-2；负责人于 2026-11-11 接受 | **已回写（PRD BR-07、AC-12）** |
 
 ## 1. 方案概述
@@ -162,7 +163,7 @@ flowchart LR
 | 条件 | 显示 |
 |---|---|
 | `steps` 为空 | C-09 空状态 |
-| 有步骤但全部未定价 | 合计卡显示 C-10，不显示金额；明细照常显示，花费列为 C-11 |
+| 有步骤但全部未定价 | 合计卡显示 C-10，不显示金额，仍显示 C-04 模型列表（PRD B-01）；明细照常显示，花费列为 C-11 |
 | 默认 | 合计卡：C-02 金额、C-03 金额、C-04 模型列表、C-06；未定价步数 ≥ 1 时追加 C-07 |
 | `hasMore` | 区域 C：C-08 与"加载更早"按钮；`loadingOlder` 时显示加载中，失败时显示可重试提示（文案在本包语言包中定义，D-08） |
 | 某轮部分步骤未定价 | 金额后加标记（`*`，`title` / `aria-label` 使用 C-07 文案） |
@@ -193,7 +194,7 @@ flowchart LR
 | T5 视图与语言包 | UI-01、NFR-01、NFR-03 | 新增 `CostView.tsx`、`cost.module.css`、`locales.ts`、`locale/*.json`（8 种语言） | T3 | 视图测试覆盖空状态、全部未定价、部分未定价标记，以及 `hasMore` 提示与 `loadingOlder` 加载中、失败重试；`verify-client-ui-i18n`、locale parity 测试通过（AC-13） |
 | T6 文档与生成产物 | AC-14 | 新增 README 三件套；重新生成 `docs/config-catalog*.md` | T4、T5 | `pnpm run doc-sync` 或 `pnpm run test:docs` 通过 |
 | T7 覆盖率与构建 | 仓库门槛 | `tests/*.client.spec.ts(x)` | T2～T5 | 新包 `src` 逐文件 100% 覆盖率；`pnpm run build:artifacts` 后 `build:check` 通过；`pnpm run duplication` 通过 |
-| T8 人工验收 | AC-01、AC-05、AC-09、AC-10、AC-14、AC-15 | — | T7 | 按 README 用 `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml`（附加 `pin-browse-picker` overlay）启动，做一次真实对话并逐条记录观察结果。AC-15：在 overlay 中写入一个负数单价后启动，同时记录宿主日志中的报错和浏览器中页签是否出现（D-09 要求页签不出现）；改回合法值并重启后，页签恢复 |
-| T9 核实 Q-02 | BR-01 | — | T8 | 记录一次真实 DeepSeek 调用的 `cacheWriteTokens` 值，回写 PRD Q-02 |
+| T8 人工验收 | AC-01、AC-05、AC-09、AC-10、AC-14、AC-15 | — | T7 | 按 README 用 `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml`（附加 `pin-browse-picker` overlay）启动，做一次真实对话并逐条记录观察结果。AC-15：在 overlay 中写入一个负数单价后启动，逐项记录：<br>① 终端日志中的报错，以及是否带字段路径（如 `prices.deepseek-flash.peak.output`）；<br>② 浏览器中"花费"页签不出现，页面上没有额外提示（控制台报错可以接受，PRD B-02）；<br>③ **只有本插件失败**：DSH 正常启动，"对话"页签能完成一次真实对话，"统计"等其他页签照常可用。<br>③ 不成立（如 DSH 整体启动失败）时，记录现象并停止 AC-15 验收，交负责人重新决定 AC-15，不在实现中绕过。最后改回合法值并重启，确认页签恢复 |
+| T9 核实 Q-02、Q-05 | BR-01、FR-05、AC-14 | — | T8 | 用一次真实 DeepSeek 对话（内置模型，不配置 `prices`）核对两项：<br>① Q-02：记录 `assistant/message` 中 `cacheWriteTokens` 的实际值；<br>② Q-05：记录 `request/header` 中 `header.config.model` 的实际模型 ID，确认与 `BUILTIN_PRICES` 的键（`deepseek-flash`、`deepseek-v4-pro`）完全一致，且该步在"花费"页签中不显示"未定价"。<br>两项结果都回写 PRD 的 Q-02、Q-05。Q-05 不一致时，AC-14 不能通过，需要负责人决定是调整内置价目表的键，还是增加模型 ID 映射；不得在实现中自行加模糊匹配 |
 
 **测试计划缺口**（回传编排者）：项目中暂无 TEST_PLAN。AC-01、AC-09、AC-10、AC-14 只有人工步骤；可参照 `apps/web/tests/client-ui-stats-panel.e2e.ts` 增加一个 Web e2e，至少覆盖 AC-01、AC-09。是否增加由 `my-create-test-plan` 决定。另外，仓库要求"user-visible change 更新 keyless recorded-session snapshot"，而实验包不进入已发布 profile，是否适用需在 pre-push 阶段按 `snapshots/AGENTS.md` 确认。
