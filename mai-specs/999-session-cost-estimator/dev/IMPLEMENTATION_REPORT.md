@@ -13,8 +13,8 @@
 | T1 包骨架与登记 | 完成 | `b4ebb6131d` | 见下文 |
 | T2 计价与格式纯函数 | 完成 | `a1aa237c90` | 见下文 |
 | T3 Definitions 与 builder | 完成 | `ca6a08fd72` | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
-| T4 配置注入 | 完成，待提交 | — | 见下文；"不注册页签"的完整断言在 T5 注册页签后补充 |
-| T5 视图与语言包 | 未开始 | — | |
+| T4 配置注入 | 完成 | `0e3bfda5a2` | 见下文；"不注册页签"的断言已在 T5 补充 |
+| T5 视图与语言包 | 完成，待提交 | — | 见下文；真实页面的浅色/深色与窄宽度检查未做，并入 T8 |
 | T6 文档与生成产物 | 未开始 | — | |
 | T7 覆盖率与构建 | 未开始 | — | |
 | T8 人工验收 | 未开始 | — | |
@@ -33,6 +33,11 @@
 | V-07 | 单价用 `z.number().min(0).required()`，并注明"如不拒绝 NaN，改用自定义校验"（CODE_DESIGN §4 审查点） | 单价为 `z.number().min(0).max(Number.MAX_VALUE).required()`；`prices` 字典外包一层 `z.transform` 检查 NaN，由检查代码自己拼出字段路径后抛出 `z.ValidationError` | 实测 schemastery 的范围检查放过 NaN；`transform` 回调拿不到 `options`（`vendor/schemastery/src/index.ts` 只传入值），无法带出路径；把 `transform` 包在整个对象外会使内层 `default({})` 失效 | 错误信息与其他字段一致，形如 `$.prices.deepseek-flash.peak.output expected a finite number but got NaN` | CODE_DESIGN §4 |
 | V-08 | 全局变量名直接写在宿主和浏览器代码里；浏览器端校验逻辑写在 `apply` 开头（CODE_DESIGN §4） | 变量名提取为 `config.ts` 导出的常量 `CONFIG_GLOBAL`；浏览器端的读取与校验提取为导出函数 `injectedPrices(injected)`，`apply` 第一行调用它；`cost-contract.ts`（纯类型）同时列入宿主编译面，因为 `config.ts` 引用其中的价目表类型 | 两端共用一个名字；读取逻辑可以不经全局变量单独测试 | 无行为影响 | CODE_DESIGN §4；TECH_DESIGN §2.3.1 文件表 |
 | V-09 | 重新生成 `docs/config-catalog*.md` 属于 T6 | 在 T4 生成 | 新增 `Config` 后 `gen-config-catalog --check` 即报过期；生成内容只取自 `Config` 的类型与 JSDoc，与 README 无关 | T6 只需复查是否仍为最新 | TECH_DESIGN T4、T6 变更文件 |
+| V-10 | `CostTurnRow` 只有 `partial` 布尔值（CODE_DESIGN §1） | 新增 `unpricedSteps`（该轮未定价步数）；`priceSummary` 同步填写 | 设计要求部分未定价标记的 `title` / `aria-label` 使用 C-07 文案，C-07 含 `{count}`，需要每轮的未定价步数 | T2 的类型与函数各加一个字段，测试同步更新 | CODE_DESIGN §1、§3 |
+| V-11 | "不声明 `SessionEventMap` 或 `SessionProjectionMap` 合并"（TECH_DESIGN §2.1.3） | 在 `cost-builder.ts` 声明 `ConversationViewSnapshotMap` 的合并 `cost: CostSnapshot` | `ctx.uiConversation.binding(id).target(name)` 的类型参数只接受该映射中的键；stats 同样声明了 `stats` | 仍不涉及会话事件和投影；声明放在浏览器端文件，不进入宿主编译面 | TECH_DESIGN §2.1.3 |
+| V-12 | 注入时把 SessionFace 作为 hook 注入，视图读 `hasMore`、`loadingOlder`（CODE_DESIGN §5） | 视图直接用槽位标准属性 `useSession` 读取 `hasMore`、`loadingOlder`，另读 `historyLoadStatus === 'error'`：会话报告历史请求失败时也显示 C-13 重试；注入对象只含 `hooks.cost`、`prices`、`loadOlder` | `conversation.view` 是 session 作用域槽位，`useSession` 已由 ui-session 提供，无需另注入；会话的 `loadOlder()` 在部分失败场景下不抛错而是把状态置为 `error` | 行为符合 D-08 | CODE_DESIGN §5 |
+| V-13 | 空状态只显示 C-09（PRD UI-01） | 空状态下若会话还有更早轮次（`hasMore`），在 C-09 下方仍显示"加载更早"按钮，不显示 C-08（C-08 要求 count ≥ 1） | 窗口里恰好没有带用量的步骤时（如最近几轮都被取消），否则用户无法加载更早轮次 | 新增一种显示组合，未新增文案。**属实现层判断，请负责人确认**；不接受时删除该按钮即可 | PRD UI-01 空状态 |
+| V-14 | "加载更早"沿用统计页签的交互（TECH_DESIGN §1.1 复用） | 文案与状态沿用 stats；按钮改用 `ui-primitives` 的 `Button`（`size="sm"`、`variant="outline"`），不复制 stats 的本地 `.button` 样式 | UI 规范要求先复用共享组件；复制 stats 的样式也会触发重复检测 | 外观与 stats 的按钮略有不同（共享按钮的 H28/R8） | TECH_DESIGN §1.1 |
 
 ## T1 包骨架与登记
 
@@ -178,3 +183,50 @@
 | `pnpm run build:artifacts`，随后 `build:check` | 通过 |
 | `pnpm run gen-config-catalog -- --check` | 生成后为最新 |
 | `pnpm run duplication` | 0 处克隆 |
+
+## T5 视图与语言包
+
+**变更**
+
+- 新增 `src/client/CostView.tsx`：合计卡（区域 A，`<section>` + `<dl>`）、部分加载提示（区域 C）、每轮明细表（区域 B，`<th scope="col">`，NFR-03）、空状态。计价在 `useMemo` 中调用 `priceSummary`（D-07），回退模型取 `useProjection('modelSelection')` 的 `lastUsed.model`。
+- 新增 `src/client/cost.module.css`：布局与表格沿用 stats 的 token；合计卡使用 `docs/ui-radius.md` 的设置卡片材质（`--dsw-radius-xl`、`--dsw-alias-settings-card-fill` / `-stroke`）；字重不超过 500。
+- 新增 `src/client/locales.ts`：命名空间 `cost`，8 种语言，中文为键集来源；PRD C-01～C-13 全部进入语言包。模型分隔符也放在语言包（中文、日文用顿号，其余用逗号，PRD C-04）。
+- `src/client/index.ts`：在 T4 的配置检查之后注册语言包、两个 Definition、view target 和 `conversation.view` 页签（`id: 'cost'`、`order: 45`）；向视图注入快照源、生效价目表和 `loadOlder`；客户端入口导出 `Config`、`CostSnapshot`、`CostKey` 类型。
+- `cost-builder.ts` 增加 `ConversationViewSnapshotMap` 合并（V-11）；`cost-contract.ts` / `cost-pricing.ts` 增加每轮未定价步数（V-10）。
+- 新增 `src/css-modules.d.ts`（与 stats 相同）；`package.json` 与 `tsconfig.client.json` 补齐视图所需依赖和 references。
+- 新增测试 `tests/cost-plugin.client.spec.ts`、`tests/cost-view.client.spec.tsx`；T4 的 `config.client.spec.ts` 中两条 `apply()` 用例移入插件测试（改用真实 Cordis 上下文）。
+
+**用例覆盖**
+
+| 设计要求 / AC | 用例 |
+|---|---|
+| FR-01 / AC-01 自动部分 | 注册后槽位中出现 `id: 'cost'`、`order: 45` 的条目，标签为"花费"；卸载插件后条目消失，语言包注销 |
+| D-09 / AC-15 自动部分 | 页面无全局配置、或配置中单价非法时，插件加载失败；槽位、Definition、语言包都没有注册 |
+| 真实装配引擎（`ConversationNodeAssembler`） | 两个 header 切换模型时每步归属正确；实时追加一步（FR-08）；窗口先缺起点和 header，`prepend` 更早页后开始时间和模型都恢复（R2、D-04） |
+| UI-01 空状态 / AC-11 | 只显示 C-09，无合计卡、明细表和按钮 |
+| UI-01 默认 / AC-05 | 合计 ¥0.1756、节省 ¥0.9594、模型"deepseek-flash、deepseek-v4-pro"、C-06 |
+| AC-06 | 部分未定价轮次金额后有 `*`，可访问名称为"不含 1 步未定价"；整轮未定价显示"未定价"；合计卡"不含 2 步未定价" |
+| AC-06 / PRD B-01 全部未定价 | 显示 C-10 与模型列表，不显示金额 |
+| D-02 回退 | 窗口无 header 时按 `lastUsed` 计价 |
+| AC-08 明细 | 表头与 `scope="col"`；每轮一行，token 列为 `100.0K` / `1.0K` |
+| AC-10 自动部分 | 快照更新后金额与行数随之更新 |
+| AC-13 | 英文词典渲染时标签、分隔符随之变化；locale parity 测试通过 |
+| FR-07 / D-08 | C-08 计数；点击调用 `loadOlder`；`loadingOlder` 时显示状态且无按钮；`loadOlder` 被拒绝后显示 C-13 并可重试（控制台记录原因）；会话 `historyLoadStatus` 为 `error` 时显示 C-13；全部加载后提示消失 |
+
+**验证（2026-11-13 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `vitest run packages/experimental/client-ui-cost`（v8 覆盖率，范围 `src/**`） | 102 个用例全部通过；所有文件语句、分支、函数、行覆盖率均为 100%（T3 的两个注册函数已由插件测试覆盖） |
+| `vitest run scripts/locale-dictionary-parity.spec.ts packages/client/ui-theme/tests` | 25 个文件、185 个用例通过（语言包对齐、主题样式规则） |
+| `pnpm run typecheck` | 首次失败（测试中读取槽位 `inject` 的类型断言），修正后通过（5/5） |
+| `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 1 处超长行，修正后通过 |
+| `verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-package-dependencies`、`verify-locale-metadata` | 全部通过 |
+| `pnpm run duplication` | 0 处克隆 |
+| `pnpm run build:artifacts`，随后 `build:check` | 通过 |
+| `pnpm run gen-config-catalog -- --check` | 最新 |
+
+**未验证（按 `dsh-client-ui-ux` 的最低检查要求，交 T8）**
+
+- 本会话没有浏览器工具，没有打开真实页面。尚未检查：浅色与深色主题下合计卡、表格、标记的颜色；窄宽度下合计卡换行与表格列宽；按钮的焦点、禁用与加载状态的实际渲染。T8 人工验收时按 README 启动后一并检查。
+- 仓库要求用户可见的 GUI 改动在 PR 中附真实运行的 GIF（`record-browser-gif`），以及设计或产品评审；在提交 PR 前处理。

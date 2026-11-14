@@ -6,6 +6,13 @@ import type { ConversationViewBuilder, ConversationViewDefinition } from '@deeps
 import type { AttributedCostStep, CostSnapshot, CostStep } from './cost-contract.ts'
 import { TARGET, type CostViewNode } from './cost-definition.ts'
 
+declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
+  interface ConversationViewSnapshotMap {
+    /** Priced steps of the loaded window this target assembles. */
+    cost: CostSnapshot
+  }
+}
+
 /** Stable snapshot used before a Session published any cost node. */
 export const EMPTY_COST_SNAPSHOT: CostSnapshot = { steps: [], windowHasHeader: false }
 

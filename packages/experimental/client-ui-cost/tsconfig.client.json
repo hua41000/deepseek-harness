@@ -7,7 +7,8 @@
   },
   "include": [
     "src/client",
-    "src/config.ts"
+    "src/config.ts",
+    "src/css-modules.d.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
@@ -16,6 +17,13 @@
     { "path": "../../client/ui-conversation/tsconfig.client.json" },
     { "path": "../../core/session" },
     { "path": "../../llm/llm" },
-    { "path": "../../util/values" }
+    { "path": "../../util/values" },
+    { "path": "../../client/locale/tsconfig.client.json" },
+    { "path": "../../client/store" },
+    { "path": "../../client/ui-primitives" },
+    { "path": "../../client/ui-renderer" },
+    { "path": "../../client/ui-session" },
+    { "path": "../../client/ui-slots" },
+    { "path": "../../core/agent" }
   ]
 }

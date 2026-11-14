@@ -138,9 +138,9 @@ describe('session summary', () => {
     expect(summary.savings).toBeCloseTo(0.1764, 10)
     expect(summary.unpricedSteps).toBe(2)
     expect(summary.pricedSteps).toBe(1)
-    expect(summary.turns[0]).toMatchObject({ turn: 1, input: 200_000, output: 2_000, partial: true })
+    expect(summary.turns[0]).toMatchObject({ turn: 1, input: 200_000, output: 2_000, partial: true, unpricedSteps: 1 })
     expect(summary.turns[0]!.cost).toBeCloseTo(0.0316, 10)
-    expect(summary.turns[1]).toEqual({ turn: 2, input: 100_000, output: 1_000, cost: null, partial: false })
+    expect(summary.turns[1]).toEqual({ turn: 2, input: 100_000, output: 1_000, cost: null, partial: false, unpricedSteps: 1 })
   })
 
   it('keeps the model list when every step is unpriced', () => {

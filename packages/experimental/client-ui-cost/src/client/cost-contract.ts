@@ -73,6 +73,8 @@ export interface CostTurnRow {
   readonly cost: number | null
   /** Whether some, but not all, steps of the turn are unpriced. */
   readonly partial: boolean
+  /** Number of steps of the turn that recorded usage but have no price or no known model. */
+  readonly unpricedSteps: number
 }
 
 /** Priced totals of a cost snapshot. */

@@ -123,6 +123,7 @@ export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback
       output: row.output,
       cost: row.priced === 0 ? null : row.cost,
       partial: row.priced > 0 && row.unpriced > 0,
+      unpricedSteps: row.unpriced,
     })),
   }
 }
