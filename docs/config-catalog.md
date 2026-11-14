@@ -610,6 +610,47 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-account-notifications -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-cost -->
+<a id="deepseek-aidsh-client-ui-cost"></a>
+
+## `@deepseek-ai/dsh-client-ui-cost`
+
+- `source`: [`packages/experimental/client-ui-cost/src/config.ts:9`](../packages/experimental/client-ui-cost/src/config.ts)
+
+```ts config-catalog
+/** Plugin configuration of the cost View. */
+export interface Config {
+  /**
+   * Unit prices in yuan per million tokens, keyed by the model id recorded in
+   * `request/header`. An entry replaces the built-in prices of that model as a
+   * whole; models absent from both are shown as unpriced.
+   */
+  prices: PriceTable
+}
+
+/** Unit prices keyed by the model id recorded in `request/header`. */
+export type PriceTable = Readonly<Record<string, ModelPrices>>
+
+/** Unit prices of one model in both price periods. */
+export interface ModelPrices {
+  /** Prices Monday to Friday, 09:00–12:00 and 14:00–18:00 Beijing time; public holidays are not recognized. */
+  readonly peak: UnitPrices
+  /** Prices at all other times, including weekends. */
+  readonly offPeak: UnitPrices
+}
+
+/** Unit prices of one model in one price period, in yuan per million tokens. */
+export interface UnitPrices {
+  /** Input tokens served from the provider's prompt cache. */
+  readonly cacheHit: number
+  /** Input tokens not served from the cache; cache writes are also priced at this rate. */
+  readonly cacheMiss: number
+  /** Output tokens. */
+  readonly output: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-cost -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 

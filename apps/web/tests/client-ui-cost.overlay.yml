@@ -1,0 +1,8 @@
+# Test-only composition: mount the experimental cost View beside Chat over the
+# shipped Web surface. No shipped profile mounts this package (default-product
+# isolation forbids it), so this overlay is the real-Web composition that renders it.
+# Without `config`, the built-in DeepSeek list prices apply; see the package README
+# for the `prices` override.
+- insert:
+    - id: ui-client-ui-cost
+      name: '@deepseek-ai/dsh-client-ui-cost'

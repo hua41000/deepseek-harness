@@ -12,8 +12,8 @@
 |---|---|---|---|
 | T1 包骨架与登记 | 完成 | `b4ebb6131d` | 见下文 |
 | T2 计价与格式纯函数 | 完成 | `a1aa237c90` | 见下文 |
-| T3 Definitions 与 builder | 完成，待提交 | — | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
-| T4 配置注入 | 未开始 | — | |
+| T3 Definitions 与 builder | 完成 | `ca6a08fd72` | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
+| T4 配置注入 | 完成，待提交 | — | 见下文；"不注册页签"的完整断言在 T5 注册页签后补充 |
 | T5 视图与语言包 | 未开始 | — | |
 | T6 文档与生成产物 | 未开始 | — | |
 | T7 覆盖率与构建 | 未开始 | — | |
@@ -30,6 +30,9 @@
 | V-04 | T1 修改 `packages/experimental/README.md` 的包列表 | 包列表的中英文行移到 T6，与本包 README 一起新增 | 双语配对检查要求中英两侧链接目标一致；本包 `README.zh.md` 在 T6 前不存在，pre-commit 钩子 `translation pairing` 拒绝提交 | 无行为影响 | TECH_DESIGN T1、T6 变更文件 |
 | V-05 | `CostSnapshot.steps` 的元素类型写作内联交叉类型 `CostStep & { model: string \| null }`（CODE_DESIGN §1） | 提取为具名接口 `AttributedCostStep extends CostStep`，字段相同 | 测试和 builder 都要构造这种对象，具名类型便于引用和写 JSDoc | 无行为影响 | CODE_DESIGN §1 |
 | V-06 | `cost-step` 按 stats 的写法折叠状态：`step/start` 建立状态、`assistant/message` 更新，起点缺失时用 `fallbackState` 从 matches 重建（CODE_DESIGN §2） | State 只保存 `step/start` 的时间；`buildViewNode` 直接从 `context.matches` 取最后一条 `assistant/message` 读用量。起点不在窗口内时引擎不调用 `start`，State 为空，开始时间回退为消息时间 | 只需要两项数据，不必复制 stats 的折叠状态机；结果只取决于当前 matches，与分页、实时更新的到达顺序无关 | 行为与设计相同（含 R2 回退、BR-06） | CODE_DESIGN §2 |
+| V-07 | 单价用 `z.number().min(0).required()`，并注明"如不拒绝 NaN，改用自定义校验"（CODE_DESIGN §4 审查点） | 单价为 `z.number().min(0).max(Number.MAX_VALUE).required()`；`prices` 字典外包一层 `z.transform` 检查 NaN，由检查代码自己拼出字段路径后抛出 `z.ValidationError` | 实测 schemastery 的范围检查放过 NaN；`transform` 回调拿不到 `options`（`vendor/schemastery/src/index.ts` 只传入值），无法带出路径；把 `transform` 包在整个对象外会使内层 `default({})` 失效 | 错误信息与其他字段一致，形如 `$.prices.deepseek-flash.peak.output expected a finite number but got NaN` | CODE_DESIGN §4 |
+| V-08 | 全局变量名直接写在宿主和浏览器代码里；浏览器端校验逻辑写在 `apply` 开头（CODE_DESIGN §4） | 变量名提取为 `config.ts` 导出的常量 `CONFIG_GLOBAL`；浏览器端的读取与校验提取为导出函数 `injectedPrices(injected)`，`apply` 第一行调用它；`cost-contract.ts`（纯类型）同时列入宿主编译面，因为 `config.ts` 引用其中的价目表类型 | 两端共用一个名字；读取逻辑可以不经全局变量单独测试 | 无行为影响 | CODE_DESIGN §4；TECH_DESIGN §2.3.1 文件表 |
+| V-09 | 重新生成 `docs/config-catalog*.md` 属于 T6 | 在 T4 生成 | 新增 `Config` 后 `gen-config-catalog --check` 即报过期；生成内容只取自 `Config` 的类型与 JSDoc，与 README 无关 | T6 只需复查是否仍为最新 | TECH_DESIGN T4、T6 变更文件 |
 
 ## T1 包骨架与登记
 
@@ -127,4 +130,51 @@
 | `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 `no-unnecessary-type-arguments`，修正后通过 |
 | `pnpm run verify-export-jsdoc` | 通过 |
 | `pnpm run verify-package-dependencies` | 通过 |
+| `pnpm run duplication` | 0 处克隆 |
+
+## T4 配置注入
+
+**变更**
+
+- 新增 `src/config.ts`：`Config` schema、`CONFIG_GLOBAL = '__DSH_UI_COST_CONFIG__'`（V-07、V-08）。
+- `src/index.ts`（宿主入口）：导出 `Config`；监听 `webserver/index-inject`，把校验后的配置写为页面全局变量。
+- `src/client/index.ts`：新增 `injectedPrices`；`apply` 在任何注册之前读取并校验页面全局变量，缺失时抛错（D-09），不回退内置价。页签等注册在 T5 加入，位于这一行之后。
+- 新增 `apps/web/tests/client-ui-cost.overlay.yml`（不带 `config`，即使用内置价目表）。
+- `package.json`：`dependencies` 新增 `@deepseek-ai/schemastery`（宿主与浏览器两端运行时都要用），devDependencies 新增 `@deepseek-ai/dsh-host-webserver`（仅类型）；两个编译面的 `tsconfig` 相应增加文件与 references。
+- 重新生成 `docs/config-catalog.md`、`docs/config-catalog.zh.md`（V-09）。生成内容引用了 `ModelPrices.peak` 的 JSDoc，原文 "see `pricePeriod`" 指向内部函数，改为直接写明时段。
+- 新增测试 `tests/config.host.spec.ts`、`tests/config.client.spec.ts`。
+
+**CODE_DESIGN §4 待验证项的结论**
+
+| 待验证项 | 结论（实测） |
+|---|---|
+| `z.number()` 能否拒绝 NaN、Infinity | Infinity 被 `max(Number.MAX_VALUE)` 拒绝；NaN 不会被拒绝，改为自定义检查（V-07） |
+| YAML 字符串 `"abc"` 是否被强制转换 | 不转换：`"abc"`、`"16"` 都报 `expected number` |
+| 两个产物能否都打包 `@deepseek-ai/schemastery` | `pnpm run build:artifacts` 与 `build:check` 通过 |
+| 宿主入口加载失败后浏览器端代码是否仍下发 | 仍待 T8 实测；无论结果如何，浏览器端拿不到全局变量都会在注册前抛错 |
+
+**AC-15 自动部分的覆盖**
+
+| 场景 | 结果 |
+|---|---|
+| 负数、NaN、Infinity、字符串、数字字符串、缺少单价字段 | `Config()` 抛错，错误信息以字段路径开头，如 `$.prices.deepseek-flash.peak.output` |
+| 模型条目缺少某个时段 | 抛错 `$.prices.deepseek-flash.offPeak missing required value` |
+| 合法配置（含单价为 0、内置表外的新模型） | 原样通过；未配置时为 `{ prices: {} }` |
+| 宿主入口以非法配置加载 | `ctx.plugin(host, …)` 的加载失败并带出字段路径，页面不注入任何内容 |
+| 宿主入口以合法配置加载与卸载 | 注入一条全局变量；卸载后不再注入 |
+| 浏览器端：全局变量缺失 | `apply` 抛错，错误信息含 `__DSH_UI_COST_CONFIG__` |
+| 浏览器端：全局变量中的值非法 | 再次校验失败并带出字段路径 |
+| 浏览器端：合法值 | 配置条目整条覆盖内置价，未配置的模型保留内置价 |
+
+**验证（2026-11-13 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `vitest run packages/experimental/client-ui-cost` | 81 个用例全部通过。首轮 2 个失败：NaN 用例（`transform` 回调没有 `options`）与缺字段用例（外包 `transform` 后 `required` 失效），按 V-07 修改后通过 |
+| 覆盖率（范围 `src/**`） | 分支 100%；`config.ts`、`index.ts`、`client/index.ts` 全覆盖；仍只差 T3 的两个注册函数 |
+| `pnpm run typecheck` | 首次失败（测试中缺字段输入的类型断言），修正后通过（5/5） |
+| `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 3 个问题（动态 `delete`、两处返回 void 表达式的箭头函数），修正后通过 |
+| `verify-cordis-config`、`verify-package-dependencies`、`verify-export-jsdoc`、`verify-locale-metadata`、`constraints` | 全部通过 |
+| `pnpm run build:artifacts`，随后 `build:check` | 通过 |
+| `pnpm run gen-config-catalog -- --check` | 生成后为最新 |
 | `pnpm run duplication` | 0 处克隆 |

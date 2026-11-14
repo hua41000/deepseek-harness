@@ -12,9 +12,9 @@ export interface UnitPrices {
 
 /** Unit prices of one model in both price periods. */
 export interface ModelPrices {
-  /** Weekday daytime prices; see `pricePeriod`. */
+  /** Prices Monday to Friday, 09:00–12:00 and 14:00–18:00 Beijing time; public holidays are not recognized. */
   readonly peak: UnitPrices
-  /** Prices outside the peak periods. */
+  /** Prices at all other times, including weekends. */
   readonly offPeak: UnitPrices
 }
 

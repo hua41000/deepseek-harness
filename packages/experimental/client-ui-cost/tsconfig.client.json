@@ -6,10 +6,12 @@
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
   "include": [
-    "src/client"
+    "src/client",
+    "src/config.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
     { "path": "../../api/session-controller/tsconfig.client.json" },
     { "path": "../../client/ui-conversation/tsconfig.client.json" },
     { "path": "../../core/session" },
