@@ -14,8 +14,8 @@
 | T2 计价与格式纯函数 | 完成 | `a1aa237c90` | 见下文 |
 | T3 Definitions 与 builder | 完成 | `ca6a08fd72` | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
 | T4 配置注入 | 完成 | `0e3bfda5a2` | 见下文；"不注册页签"的断言已在 T5 补充 |
-| T5 视图与语言包 | 完成，待提交 | — | 见下文；真实页面的浅色/深色与窄宽度检查未做，并入 T8 |
-| T6 文档与生成产物 | 未开始 | — | |
+| T5 视图与语言包 | 完成 | `fcb6ad75ed` | 见下文；真实页面的浅色/深色与窄宽度检查未做，并入 T8 |
+| T6 文档与生成产物 | 完成，待提交 | — | 见下文；`doc-sync` 剩 2 项失败，均来自 `mai-specs/` |
 | T7 覆盖率与构建 | 未开始 | — | |
 | T8 人工验收 | 未开始 | — | |
 | T9 核实 Q-02、Q-05 | 未开始 | — | |
@@ -36,8 +36,9 @@
 | V-10 | `CostTurnRow` 只有 `partial` 布尔值（CODE_DESIGN §1） | 新增 `unpricedSteps`（该轮未定价步数）；`priceSummary` 同步填写 | 设计要求部分未定价标记的 `title` / `aria-label` 使用 C-07 文案，C-07 含 `{count}`，需要每轮的未定价步数 | T2 的类型与函数各加一个字段，测试同步更新 | CODE_DESIGN §1、§3 |
 | V-11 | "不声明 `SessionEventMap` 或 `SessionProjectionMap` 合并"（TECH_DESIGN §2.1.3） | 在 `cost-builder.ts` 声明 `ConversationViewSnapshotMap` 的合并 `cost: CostSnapshot` | `ctx.uiConversation.binding(id).target(name)` 的类型参数只接受该映射中的键；stats 同样声明了 `stats` | 仍不涉及会话事件和投影；声明放在浏览器端文件，不进入宿主编译面 | TECH_DESIGN §2.1.3 |
 | V-12 | 注入时把 SessionFace 作为 hook 注入，视图读 `hasMore`、`loadingOlder`（CODE_DESIGN §5） | 视图直接用槽位标准属性 `useSession` 读取 `hasMore`、`loadingOlder`，另读 `historyLoadStatus === 'error'`：会话报告历史请求失败时也显示 C-13 重试；注入对象只含 `hooks.cost`、`prices`、`loadOlder` | `conversation.view` 是 session 作用域槽位，`useSession` 已由 ui-session 提供，无需另注入；会话的 `loadOlder()` 在部分失败场景下不抛错而是把状态置为 `error` | 行为符合 D-08 | CODE_DESIGN §5 |
-| V-13 | 空状态只显示 C-09（PRD UI-01） | 空状态下若会话还有更早轮次（`hasMore`），在 C-09 下方仍显示"加载更早"按钮，不显示 C-08（C-08 要求 count ≥ 1） | 窗口里恰好没有带用量的步骤时（如最近几轮都被取消），否则用户无法加载更早轮次 | 新增一种显示组合，未新增文案。**属实现层判断，请负责人确认**；不接受时删除该按钮即可 | PRD UI-01 空状态 |
+| V-13 | 空状态只显示 C-09（PRD UI-01） | 空状态下若会话还有更早轮次（`hasMore`），在 C-09 下方仍显示"加载更早"按钮，不显示 C-08（C-08 要求 count ≥ 1） | 窗口里恰好没有带用量的步骤时（如最近几轮都被取消），否则用户无法加载更早轮次 | 新增一种显示组合，未新增文案。**负责人已接受（2026-11-13），保留按钮；PRD UI-01 空状态稍后回写** | PRD UI-01 空状态 |
 | V-14 | "加载更早"沿用统计页签的交互（TECH_DESIGN §1.1 复用） | 文案与状态沿用 stats；按钮改用 `ui-primitives` 的 `Button`（`size="sm"`、`variant="outline"`），不复制 stats 的本地 `.button` 样式 | UI 规范要求先复用共享组件；复制 stats 的样式也会触发重复检测 | 外观与 stats 的按钮略有不同（共享按钮的 H28/R8） | TECH_DESIGN §1.1 |
+| V-15 | T6 只列出 README 三件套与 `docs/config-catalog*.md`（TECH_DESIGN T6；§2.3.1 提到 client catalog "如覆盖实验包则一并生成"） | 另外登记与生成：`scripts/verify-package-readme-model-experience.ts` 的 `SENTENCE_MODEL_EXPERIENCE` 新增本包（README 使用简短的 "None, as …" 形式时必须登记）；重新生成 `cordis-client-runner` 的 `slot-catalog.ts`、`docs/event-producer-consumer*.md`、`agent-preset` 的 `dsh-doc/references/packages.md` | `doc-sync` 的相应检查在新增包后报过期或缺登记 | 仅新增本包对应的一行；无行为影响 | TECH_DESIGN T6 变更文件、§2.3.1 仓库登记 |
 
 ## T1 包骨架与登记
 
@@ -230,3 +231,38 @@
 
 - 本会话没有浏览器工具，没有打开真实页面。尚未检查：浅色与深色主题下合计卡、表格、标记的颜色；窄宽度下合计卡换行与表格列宽；按钮的焦点、禁用与加载状态的实际渲染。T8 人工验收时按 README 启动后一并检查。
 - 仓库要求用户可见的 GUI 改动在 PR 中附真实运行的 GIF（`record-browser-gif`），以及设计或产品评审；在提交 PR 前处理。
+
+## T6 文档与生成产物
+
+**变更**
+
+- 新增 `packages/experimental/client-ui-cost/README.md`、`README.zh.md`（按 `dsh-doc-writing` 的 `package-reference` 模板，中英逐行对齐，均 149 行）与 `README.i18n.yaml`（`verify-translation-pairing --write` 生成）。内容覆盖 AC-14 要求的安装、配置、启动、验证命令，并在已知限制中写明 D-04 的"未定价"含义、R3 的低估、R2 的开始时间回退、节假日、旧模型 ID（T2 复核价目页的发现）和缓存写入单价。
+- `packages/experimental/README.md` / `README.zh.md` 包列表新增本包一行，并重新记录 `README.i18n.yaml`（补完 V-04）。
+- V-15 所列的登记与生成文件。
+
+**事实核对（按 `dsh-doc-writing` 的要求实际运行）**
+
+| README 中的说法 | 核对方式与结果 |
+|---|---|
+| `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml` 可启动 | 加上 `pin-browse-picker` overlay、`--no-open --port 0` 实际启动：终端只输出 `dsh web: http://127.0.0.1:<port>/?token=…`，没有警告。用本地 curl（带登录 cookie）取首页：页面含 `__DSH_UI_COST_CONFIG__ = {"prices":{}}`，并加载 `client-ui-cost/client.js`。随后停止进程 |
+| 单价非法时本插件不加载、DSH 照常运行、终端写明字段 | 用 scratchpad 中把 `deepseek-flash.peak.output` 设为 -1 的 overlay 实际启动：终端输出 `dsh: warning: 1 entry did not activate` 和 `ui-client-ui-cost (@deepseek-ai/dsh-client-ui-cost): ValidationError: invalid config: - $.prices.deepseek-flash.peak.output expected number >= 0 but got -1`，随后仍打印 `dsh web: http://…`，首页可正常取得。随后停止进程 |
+| 本包测试命令 | `pnpm exec vitest run packages/experimental/client-ui-cost` 已在 T2～T5 多次实际运行 |
+| 验证步骤 1～3（发送消息、切换页签、实时更新） | **未运行**：本机未设置 `DEEPSEEK_API_KEY`，也没有浏览器工具。交 T8 人工验收 |
+| `DEEPSEEK_API_KEY` 可放在环境变量或根目录 `.env` | 依据仓库根 `AGENTS.md` 的说明，未在本次实际调用模型 |
+
+**T8 待实测项的新结论**（来自上面的非法配置启动）：
+
+- AC-15 ①：终端报错带字段路径，已观察到。
+- AC-15 ③的一部分：DSH 整体启动成功，首页可取得；"对话"能完成一次真实对话、"统计"等页签可用，仍需 T8 在浏览器中确认。
+- D-09 / CODE_DESIGN §4 的待验证项：宿主入口因配置无效未激活时，页面**没有**注入全局变量，但**仍然**加载 `client-ui-cost/client.js`。因此浏览器端"拿不到配置就抛错"这一检查是必要的；页签不出现、控制台有报错，需 T8 在浏览器中确认。
+
+**验证（2026-11-13 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm run verify-translation-pairing packages/experimental/README.md packages/experimental/client-ui-cost/README.md` | `--write` 后检查通过 |
+| `pnpm run test:docs` | 首次 3 项失败：Model Experience 缺登记（已按 V-15 修正）、`mai-specs/README.md` 无中文对应页、`mai-specs/` 中的提交哈希引用 |
+| `pnpm run doc-sync` | 首次 5 项失败：另有 client catalog、doc graphs、skill plugin package list 三项生成文件过期，重新生成后通过。**最终 41 项通过，2 项失败**：① `translation pairing`：`mai-specs/README.md` 缺少中文对应页，该文件来自初始化提交 `4f19dda33d`，与本次改动无关；② `repository references`：`mai-specs/` 下的文档引用提交哈希，包括已有的 TECH_DESIGN、design_review、TEST_PLAN，以及本报告任务进度表中的提交号 |
+| `pnpm run typecheck`；`run-oxlint`（本包、改动的脚本与生成文件）；`git diff --check` | 通过 |
+
+**待负责人决定**：`mai-specs/` 是作业流程目录，不属于 DSH 文档体系，但仓库的文档检查会扫描它，上述 2 项失败会一直存在。可选：把 `mai-specs/` 加入这两项检查的排除列表，或接受这两项失败并在 PR 中说明。本次未处理。
