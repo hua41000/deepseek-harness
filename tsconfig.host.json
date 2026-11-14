@@ -290,6 +290,7 @@
     { "path": "./packages/experimental/personalized-recommendations" },
 
     { "path": "./packages/experimental/client-ui-cot-translation/tsconfig.host.json" },
+    { "path": "./packages/experimental/client-ui-cost/tsconfig.host.json" },
     { "path": "./packages/experimental/cot-translation-bundle" },
     { "path": "./packages/experimental/session-search" },
     { "path": "./packages/experimental/ralph-bundle" },

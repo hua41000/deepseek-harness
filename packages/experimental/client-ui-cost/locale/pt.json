@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Visão de custo",
+    "description": "Mostra o custo estimado em RMB e a economia de cache por turno e por sessão ao lado do chat."
+  }
+}

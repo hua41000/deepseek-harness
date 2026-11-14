@@ -130,6 +130,7 @@
     { "path": "./packages/client/ui-subagent" },
     { "path": "./packages/client/ui-agent-team" },
     { "path": "./packages/experimental/client-ui-stats" },
+    { "path": "./packages/experimental/client-ui-cost/tsconfig.client.json" },
     { "path": "./packages/client/ui-dockkit" },
     { "path": "./packages/client/ui-sidebar-right" },
     { "path": "./packages/client/ui-entry-customization" },

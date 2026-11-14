@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Vue des coûts",
+    "description": "Affiche le coût estimé en RMB et les économies de cache par tour et par session à côté du chat."
+  }
+}
