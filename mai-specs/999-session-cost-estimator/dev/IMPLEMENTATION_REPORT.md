@@ -11,8 +11,8 @@
 | 任务 | 状态 | 提交 | 说明 |
 |---|---|---|---|
 | T1 包骨架与登记 | 完成 | `b4ebb6131d` | 见下文 |
-| T2 计价与格式纯函数 | 完成，待提交 | — | 见下文 |
-| T3 Definitions 与 builder | 未开始 | — | |
+| T2 计价与格式纯函数 | 完成 | `a1aa237c90` | 见下文 |
+| T3 Definitions 与 builder | 完成，待提交 | — | 见下文；两个注册函数的覆盖由 T5 插件测试补齐 |
 | T4 配置注入 | 未开始 | — | |
 | T5 视图与语言包 | 未开始 | — | |
 | T6 文档与生成产物 | 未开始 | — | |
@@ -29,6 +29,7 @@
 | V-03 | `locale/*.json` 属于 T5 | T1 先新增 8 种语言的 `locale/*.json`，只含包元数据 `meta.title`、`meta.description` | `pnpm run hygiene` 的 `verify-locale-metadata` 要求每个插件包具备 8 种已发布语言的元数据，否则 T1 验收不通过 | T5 只补界面文案，不再新建这些文件 | TECH_DESIGN T1、T5 变更文件 |
 | V-04 | T1 修改 `packages/experimental/README.md` 的包列表 | 包列表的中英文行移到 T6，与本包 README 一起新增 | 双语配对检查要求中英两侧链接目标一致；本包 `README.zh.md` 在 T6 前不存在，pre-commit 钩子 `translation pairing` 拒绝提交 | 无行为影响 | TECH_DESIGN T1、T6 变更文件 |
 | V-05 | `CostSnapshot.steps` 的元素类型写作内联交叉类型 `CostStep & { model: string \| null }`（CODE_DESIGN §1） | 提取为具名接口 `AttributedCostStep extends CostStep`，字段相同 | 测试和 builder 都要构造这种对象，具名类型便于引用和写 JSDoc | 无行为影响 | CODE_DESIGN §1 |
+| V-06 | `cost-step` 按 stats 的写法折叠状态：`step/start` 建立状态、`assistant/message` 更新，起点缺失时用 `fallbackState` 从 matches 重建（CODE_DESIGN §2） | State 只保存 `step/start` 的时间；`buildViewNode` 直接从 `context.matches` 取最后一条 `assistant/message` 读用量。起点不在窗口内时引擎不调用 `start`，State 为空，开始时间回退为消息时间 | 只需要两项数据，不必复制 stats 的折叠状态机；结果只取决于当前 matches，与分页、实时更新的到达顺序无关 | 行为与设计相同（含 R2 回退、BR-06） | CODE_DESIGN §2 |
 
 ## T1 包骨架与登记
 
@@ -91,3 +92,39 @@
 
 - 价目页说明旧模型 ID `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 仍可调用，并按 Flash 价格计费。如果 DSH 的 `request/header` 记录的是这些旧 ID，相应步骤会显示为"未定价"。这与 Q-05 相关：T9 核对实际记录的模型 ID；如果不一致，按设计 T9 由负责人决定是改内置价目表还是加模型 ID 映射，实现中不自行添加。
 - 价目页注明法定节假日按空闲价计费。PRD BR-02 已接受不识别节假日造成的误差，实现与 PRD 一致，未改。
+
+## T3 Definitions 与 builder
+
+**变更**
+
+- 新增 `src/client/cost-definition.ts`：`TARGET = 'cost'`、`CostViewNode` / `CostNodeData`、`costStepDefinition`、`costRouteDefinition`、`registerCostDefinitions`。`step/start` 不触发发布（`none`），`assistant/message` 立即发布（FR-08）。
+- 新增 `src/client/cost-builder.ts`：`attributeModels`（按 seq 排序后单指针归属模型）、`EMPTY_COST_SNAPSHOT`、`costViewDefinition`（`replace` / `apply` 接口同 stats 的 builder）、`registerCostView`。封闭联合的 `default` 分支按仓库约定调用 `assertNever`。
+- `package.json` 新增 devDependency `@deepseek-ai/dsh-util-values`（`assertNever`）；`tsconfig.client.json` 增加对 session-controller、ui-conversation、core/session、llm、util/values 的 references。
+- 新增测试 `tests/cost-definition.client.spec.ts`、`tests/cost-builder.client.spec.ts`。
+
+**R6 核对结果（风险关闭）**：`packages/client/ui-conversation/src/client/conversation/assembler.ts` 中，`replaceWindow` 的参数说明为 "complete contiguous window"，`prepend` 只加入更早的事件。因此已加载窗口总是会话日志的连续后缀，D-02 的 `lastUsed` 回退前提成立，不需要去掉回退。
+
+**用例覆盖**
+
+| 设计要求 / AC | 用例 |
+|---|---|
+| 模型归属：无 header | 全部步骤 `model` 为 null，`windowHasHeader` 为 false |
+| 模型归属：header 在开头 / 在中间 | 开头时全部归属；中间时之前的步骤为 null（D-04），之后的归属该模型 |
+| 模型切换 | 多个 header 时每步取它之前最近的一个 |
+| 不变量：与到达顺序无关 | 打乱节点顺序输入，结果相同；加载更早页后，原先未知的步骤得到模型 |
+| AC-08 多轮排序 | 步骤按 `messageSeq` 排序，跨轮次 |
+| AC-11 / BR-06 无用量步骤 | `assistant/message` 无 `usage`，或该步还没有消息时，不产生节点 |
+| R2 起点缺失回退 | 无 State 时开始时间取消息时间 |
+| 用量映射 | `inputTokens` → miss，`cacheReadTokens` / `cacheWriteTokens` 缺省为 0 |
+| 增量更新 | `apply` 在 `replace` 结果上追加；空 upserts 时返回同一快照；同 key 覆盖；`replace` 丢弃旧节点 |
+
+**验证（2026-11-13 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `vitest run packages/experimental/client-ui-cost`（v8 覆盖率，范围 `src/client/cost-*.ts`） | 63 个用例全部通过。分支覆盖 100%；`registerCostDefinitions`、`registerCostView` 两个注册函数未覆盖（语句 97.41%）。直接测试需要把假对象断言为 `Context`，会违反 "No new assertions to unknown"，因此留给 T5 用真实客户端运行时的插件测试覆盖，T7 统一核对 100% |
+| `pnpm run typecheck` | 首次失败：测试中 route 上下文的 State 被推断为 `undefined`，补显式类型后通过（5/5） |
+| `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 `no-unnecessary-type-arguments`，修正后通过 |
+| `pnpm run verify-export-jsdoc` | 通过 |
+| `pnpm run verify-package-dependencies` | 通过 |
+| `pnpm run duplication` | 0 处克隆 |
