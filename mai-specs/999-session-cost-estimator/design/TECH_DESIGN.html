@@ -141,7 +141,7 @@
 <body>
   <header class="hero">
     <div>
-      <p class="eyebrow">技术方案 · 开发者审阅</p>
+      <p class="eyebrow">技术方案 · 开发者审阅 · 已按实现同步（2026-11-14）</p>
       <h1>会话花费估算插件</h1>
       <p class="lead">在会话视图新增一个“花费”页签：浏览器端从已加载的会话事件中为每一步找出模型与时段，按单价换算成人民币，汇总出每轮花费、会话合计和缓存节省。</p>
     </div>
@@ -198,9 +198,10 @@
       <p>DSH 现有界面只显示 token 数。DeepSeek 按模型、缓存是否命中、输入或输出、高峰或空闲时段分别计价，用户无法从 token 数心算出花费。</p>
       <ul>
         <li><strong>零宿主改动</strong>：不新增会话事件、投影或服务。模型 ID 从已有的 <code>request/header</code> 推出，时间取自 <code>step/start</code>。</li>
-        <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-experimental-client-ui-cost</code>，页签注册、Definition 与 view target 的写法沿用 <code>client-ui-stats</code>；分页不照搬它，直接调用会话的 <code>loadOlder()</code>。只通过 <code>--patch</code> overlay 挂载。</li>
+        <li><strong>独立实验包</strong>：<code>@deepseek-ai/dsh-client-ui-cost</code>（目录 <code>packages/experimental/client-ui-cost</code>；实验包禁用 <code>dsh-experimental-</code> 前缀，包名登记为例外），页签注册、Definition 与 view target 的写法沿用 <code>client-ui-stats</code>；分页不照搬它，直接调用会话的 <code>loadOlder()</code>，按钮用共享的 <code>Button</code>。只通过 <code>--patch</code> overlay 挂载。</li>
+        <li><strong>两个编译面</strong>：宿主面只含 <code>src/index.ts</code>、<code>src/config.ts</code> 与纯类型的 <code>cost-contract.ts</code>；浏览器面含 <code>src/client</code> 与共享的 <code>config.ts</code>。</li>
         <li><strong>规则集中在纯函数</strong>：时段、取价、计价、汇总、金额格式都在 <code>cost-pricing.ts</code> 和 <code>cost-format.ts</code> 中，与界面分离，便于逐条单测。</li>
-        <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数、非数字或缺少字段都会让插件启动失败并报出字段路径，不会降级成未定价。</li>
+        <li><strong>配置错误加载即失败</strong>：单价配置由 schemastery 校验，负数、Infinity、NaN、非数字或缺少字段都会让插件启动失败并报出字段路径，不会降级成未定价。schemastery 的范围检查放过 NaN，因此另有一层自定义检查。</li>
         <li><strong>宁缺不错</strong>：推不出模型或没有单价的步骤不计入金额，在合计卡注明“不含 N 步未定价”。</li>
       </ul>
     </section>
@@ -258,10 +259,32 @@
       </figure>
       <ul>
         <li>没有用量记录的步骤（取消、失败、进行中）不产生节点，既不计价，也不算作未定价。</li>
-        <li><code>step/start</code> 不在窗口内时，开始时间回退为 <code>assistant/message</code> 的时间。只有窗口第一步可能受影响。</li>
-        <li>配置无效时宿主加载失败；页面拿不到全局配置时，浏览器端也直接报错，不回退到内置价，页签不会出现。</li>
-        <li>“加载更早”按钮直接调用 <code>session.loadOlder()</code>，加载中和是否还有更早轮次分别读取会话快照的 <code>loadingOlder</code> 和 <code>hasMore</code>。</li>
+        <li><code>cost-step</code> 的状态只保存 <code>step/start</code> 的时间，用量直接取该步最后一条 <code>assistant/message</code>。起点不在窗口内时，开始时间回退为消息时间，只有窗口第一步可能受影响。</li>
+        <li>会话窗口总是日志的连续后缀（<code>replaceWindow</code> 收完整连续窗口，<code>prepend</code> 只加更早事件），因此窗口内没有请求头时可以用 <code>lastUsed</code> 回退。</li>
+        <li>配置无效时宿主入口加载失败，但浏览器端代码仍会下发；页面拿不到全局配置时，浏览器端在任何注册之前报错，不回退到内置价，页签不会出现，DSH 其余部分照常运行。</li>
+        <li>“加载更早”按钮直接调用 <code>session.loadOlder()</code>；视图用槽位标准属性 <code>useSession</code> 读取 <code>hasMore</code>、<code>loadingOlder</code> 与 <code>historyLoadStatus</code>。</li>
       </ul>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>视图状态：空状态下只要会话还有更早轮次，仍显示“加载更早”按钮，但不显示“只统计已加载的 N 轮”提示。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>flowchart TD
+  accTitle: 花费页签的视图状态
+  S{"快照里有带用量的步骤？"} -- 没有 --&gt; E["空状态文案"]
+  S -- 有 --&gt; A{"有已计价步骤？"}
+  A -- 没有 --&gt; AU["合计卡：全部未定价 + 模型列表"]
+  A -- 有 --&gt; AD["合计卡：花费 · 节省 · 模型&lt;br/&gt;有未定价步骤时注明步数"]
+  AU --&gt; T["每轮明细表&lt;br/&gt;部分未定价的轮次金额后加 *"]
+  AD --&gt; T
+  E --&gt; H{"hasMore？"}
+  T --&gt; H
+  H -- 否 --&gt; N["无加载区"]
+  H -- 是 --&gt; L{"loadingOlder？"}
+  L -- 是 --&gt; LS["加载中提示，不显示按钮"]
+  L -- 否 --&gt; B["加载更早按钮&lt;br/&gt;有步骤时附“只统计已加载的 N 轮”&lt;br/&gt;被拒绝或 historyLoadStatus = error 时显示“加载失败，重试”"]</pre>
+        </details>
+      </figure>
     </section>
 
     <section id="model">
@@ -311,7 +334,7 @@
     +number output
   }
   class CostSnapshot {
-    +AttributedStep[] steps
+    +AttributedCostStep[] steps
     +boolean windowHasHeader
   }
   class ModelPrices {
@@ -337,12 +360,13 @@
     +number output
     +number cost
     +boolean partial
+    +number unpricedSteps
   }
-  class AttributedStep {
+  class AttributedCostStep {
     +string model
   }
-  CostStep &lt;|-- AttributedStep
-  CostSnapshot "1" o-- "*" AttributedStep
+  CostStep &lt;|-- AttributedCostStep
+  CostSnapshot "1" o-- "*" AttributedCostStep
   ModelPrices *-- UnitPrices
   CostSummary "1" o-- "*" CostTurnRow</pre>
         </details>
@@ -351,12 +375,13 @@
         <table>
           <thead><tr><th scope="col">模块</th><th scope="col">职责</th></tr></thead>
           <tbody>
-            <tr><td><code>cost-definition.ts</code></td><td>两个 Definition：<code>cost-step</code>（step/start 起，assistant/message 更新）与 <code>cost-route</code>（每条 request/header 一个节点）</td></tr>
-            <tr><td><code>cost-builder.ts</code></td><td>维护节点集合，<code>attributeModels()</code> 按 seq 为每步确定模型</td></tr>
+            <tr><td><code>cost-definition.ts</code></td><td>两个 Definition：<code>cost-step</code>（状态为 step/start 时间，用量取最后一条 assistant/message）与 <code>cost-route</code>（每条 request/header 一个节点）</td></tr>
+            <tr><td><code>cost-builder.ts</code></td><td>维护节点集合，<code>attributeModels()</code> 按 seq 为每步确定模型；声明 <code>ConversationViewSnapshotMap</code> 合并 <code>cost: CostSnapshot</code></td></tr>
             <tr><td><code>cost-pricing.ts</code></td><td><code>BUILTIN_PRICES</code>、<code>pricePeriod</code>、<code>resolvePrices</code>、<code>priceStep</code>、<code>priceSummary</code></td></tr>
             <tr><td><code>cost-format.ts</code></td><td>人民币金额格式、token 的 k / M 缩写</td></tr>
-            <tr><td><code>CostView.tsx</code></td><td>合计卡、部分加载提示、每轮明细表、空状态与全部未定价状态</td></tr>
-            <tr><td><code>src/index.ts</code> / <code>src/config.ts</code></td><td>宿主入口：校验 <code>prices</code> 并通过 <code>webserver/index-inject</code> 写入页面</td></tr>
+            <tr><td><code>CostView.tsx</code></td><td>合计卡、部分加载提示、每轮明细表、空状态与全部未定价状态；会话状态经 <code>useSession</code> 读取</td></tr>
+            <tr><td><code>src/client/index.ts</code></td><td><code>injectedPrices()</code> 读取并校验页面全局配置；注册语言包、Definitions、view target 与页签，注入 <code>hooks.cost</code>、<code>prices</code>、<code>loadOlder</code></td></tr>
+            <tr><td><code>src/index.ts</code> / <code>src/config.ts</code></td><td>宿主入口：校验 <code>prices</code>（含 NaN 检查），以常量 <code>CONFIG_GLOBAL</code> 为名通过 <code>webserver/index-inject</code> 写入页面</td></tr>
           </tbody>
         </table>
       </div>
@@ -365,25 +390,34 @@
     <section id="files">
       <h2><span class="material-symbols-outlined" aria-hidden="true">folder</span>变更文件</h2>
       <pre tabindex="0"><code class="language-diff">+ packages/experimental/client-ui-cost/
-+   package.json                     # dsh.client.inject 与 exports，参照 client-ui-stats
-+   tsconfig.json · tsdown.config.ts
-+   README.md · README.zh.md · README.i18n.yaml   # 安装、配置、启动、验证
++   package.json                     # @deepseek-ai/dsh-client-ui-cost；dsh.client.inject 与 exports
++   tsconfig.json                    # 只做汇总
++   tsconfig.host.json               # 宿主面：src/index.ts · src/config.ts · src/client/cost-contract.ts
++   tsconfig.client.json             # 浏览器面：src/client · src/config.ts · src/css-modules.d.ts
++   tsdown.config.ts
++   README.md · README.zh.md · README.i18n.yaml   # 安装、配置、启动、验证、已知限制
 +   locale/{zh,en,ja,de,es,fr,pt,ru}.json         # 包元数据
-+   src/index.ts · src/config.ts                   # 宿主入口与配置 schema
-+   src/client/index.ts                            # 语言包、Definitions、view target、页签
++   src/index.ts · src/config.ts                   # 宿主入口、配置 schema、CONFIG_GLOBAL
++   src/css-modules.d.ts
++   src/client/index.ts                            # injectedPrices、语言包、Definitions、view target、页签
 +   src/client/cost-contract.ts · cost-definition.ts · cost-builder.ts
 +   src/client/cost-pricing.ts · cost-format.ts
 +   src/client/CostView.tsx · cost.module.css · locales.ts（8 种语言）
-+   tests/*.client.spec.ts(x)                      # 逐文件 100% 覆盖
++   tests/*.client.spec.ts(x) · tests/config.host.spec.ts   # 逐文件 100% 覆盖
 + apps/web/tests/client-ui-cost.overlay.yml        # 启动验证用 overlay
-! tsconfig.base.json · tsconfig.client.json        # paths 与 references 登记
-! packages/experimental/README.md                  # 包列表
-! docs/config-catalog.md · docs/config-catalog.zh.md   # 由 gen-config-catalog 重新生成</code></pre>
+! tsconfig.base.json                               # paths
+! tsconfig.host.json · tsconfig.client.json        # 各登记本包一个编译面
+! scripts/experimental-package-policy.ts           # 包名例外
+! scripts/verify-package-readme-model-experience.ts   # Model Experience 登记
+! packages/experimental/README.md · README.zh.md · README.i18n.yaml   # 包列表
+! docs/config-catalog.md · docs/config-catalog.zh.md   # gen-config-catalog 重新生成
+! docs/event-producer-consumer.md · .zh.md         # 重新生成
+! cordis-client-runner slot-catalog.ts · agent-preset dsh-doc/references/packages.md   # 重新生成</code></pre>
     </section>
 
     <section id="code">
       <h2><span class="material-symbols-outlined" aria-hidden="true">code</span>核心代码</h2>
-      <h3><span class="tag">拟议代码</span><code>cost-builder.ts</code> · <code>attributeModels</code></h3>
+      <h3><span class="tag">现有实现（摘录）</span><code>cost-builder.ts</code> · <code>attributeModels</code></h3>
       <pre tabindex="0"><code class="language-ts">export function attributeModels(nodes: Iterable&lt;CostViewNode&gt;): CostSnapshot {
   const routes: { seq: number; model: string }[] = []
   const steps: CostStep[] = []
@@ -405,7 +439,7 @@
   return { steps: attributed, windowHasHeader: routes.length &gt; 0 }
 }</code></pre>
 
-      <h3><span class="tag">拟议代码</span><code>cost-pricing.ts</code> · 时段与单步计价</h3>
+      <h3><span class="tag">现有实现（摘录）</span><code>cost-pricing.ts</code> · 时段与单步计价</h3>
       <pre tabindex="0"><code class="language-ts">const BEIJING_OFFSET_MS = 8 * 3_600_000
 
 export function pricePeriod(epochMs: number): PricePeriod {
@@ -427,7 +461,7 @@ export function priceStep(step: CostStep, model: string | null, table: PriceTabl
   return { cost, savings }
 }</code></pre>
 
-      <h3><span class="tag">拟议代码</span><code>cost-pricing.ts</code> · 汇总</h3>
+      <h3><span class="tag">现有实现（摘录）</span><code>cost-pricing.ts</code> · 汇总</h3>
       <pre tabindex="0"><code class="language-ts">export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallbackModel: string | null): CostSummary {
   // 只有窗口内没有任何请求头时，lastUsed 才能代表整个窗口的模型
   const fallback = snapshot.windowHasHeader ? null : fallbackModel
@@ -451,36 +485,82 @@ export function priceStep(step: CostStep, model: string | null, table: PriceTabl
       turn, input: r.input, output: r.output,
       cost: r.priced === 0 ? null : r.cost,          // 整轮未定价
       partial: r.priced &gt; 0 &amp;&amp; r.unpriced &gt; 0,       // 部分未定价，金额后加标记
+      unpricedSteps: r.unpriced,                      // 标记的提示文案需要该轮未定价步数
     })),
   }
 }</code></pre>
 
-      <h3><span class="tag">拟议代码</span><code>src/config.ts</code> · <code>src/index.ts</code> · 配置注入</h3>
-      <pre tabindex="0"><code class="language-ts">const unit = z.object({
-  cacheHit: z.number().min(0).required(),
-  cacheMiss: z.number().min(0).required(),
-  output: z.number().min(0).required(),
-})
+      <h3><span class="tag">现有实现（摘录）</span><code>src/config.ts</code> · <code>src/index.ts</code> · 配置注入</h3>
+      <pre tabindex="0"><code class="language-ts">export const CONFIG_GLOBAL = '__DSH_UI_COST_CONFIG__'
+
+// min(0) 拒绝负数，max(Number.MAX_VALUE) 拒绝 Infinity
+const price = z.number().min(0).max(Number.MAX_VALUE).required()
+const unitPrices = z.object({ cacheHit: price, cacheMiss: price, output: price })
+const modelPrices = z.object({ peak: unitPrices.required(), offPeak: unitPrices.required() })
+
+// NaN 能通过所有范围检查，transform 回调又拿不到字段路径，因此整表检查并自行拼出路径
+function rejectNaN(table: PriceTable): PriceTable {
+  for (const [model, prices] of Object.entries(table))
+    for (const period of ['peak', 'offPeak'] as const)
+      for (const field of ['cacheHit', 'cacheMiss', 'output'] as const)
+        if (Number.isNaN(prices[period][field]))
+          throw new z.ValidationError('expected a finite number but got NaN', { path: ['prices', model, period, field] })
+  return table
+}
+
 export const Config: z&lt;Partial&lt;Config&gt;, Config&gt; = z.object({
-  prices: z.dict(z.object({ peak: unit.required(), offPeak: unit.required() })).default({}),
+  // transform 只包住字典；包在整个对象外会使 default({}) 与 required 失效
+  prices: z.transform(z.dict(modelPrices), rejectNaN).default({}),
 })
 
 // 宿主入口：不提供服务，只把校验后的配置写入页面
 export function apply(ctx: Context, config: Config): void {
   ctx.on('webserver/index-inject', (table) =&gt; {
-    table.push({ kind: 'global', name: '__DSH_UI_COST_CONFIG__', value: config })
+    table.push({ kind: 'global', name: CONFIG_GLOBAL, value: config })
   })
 }
 
-// 浏览器端：跨进程输入，用同一 schema 再校验一次
-const injected = (globalThis as { __DSH_UI_COST_CONFIG__?: Partial&lt;Config&gt; }).__DSH_UI_COST_CONFIG__
-if (injected === undefined) {
-  // 宿主入口成功时总会注入；拿不到说明宿主入口未运行或配置无效，不回退到内置价
-  throw new Error('client-ui-cost: price configuration was not injected; the host entry did not run or its config is invalid')
-}
-const prices = resolvePrices(Config(injected).prices)</code></pre>
+// 浏览器端：跨进程输入，用同一 schema 再校验一次；apply 第一行调用，早于任何注册
+export function injectedPrices(injected: Partial&lt;Config&gt; | undefined): PriceTable {
+  if (injected === undefined) {
+    // 宿主入口成功时总会注入；拿不到说明宿主入口未运行或配置无效，不回退到内置价
+    throw new Error(`client-ui-cost: the page carries no ${CONFIG_GLOBAL}; the Host entry is not loaded or its price configuration is invalid`)
+  }
+  return resolvePrices(Config(injected).prices)
+}</code></pre>
 
-      <h3><span class="tag">拟议代码</span><code>cost-format.ts</code> · 金额格式</h3>
+      <h3><span class="tag">现有实现（摘录）</span><code>CostView.tsx</code> · 会话状态与加载更早</h3>
+      <pre tabindex="0"><code class="language-ts">const { useCost, useSession, useProjection, prices, loadOlder, t } = props
+const snapshot = useCost(value =&gt; value)
+const lastUsed = useProjection('modelSelection', value =&gt; value?.lastUsed?.model ?? null)
+const hasMore = useSession(session =&gt; session.hasMore)
+const loadingOlder = useSession(session =&gt; session.loadingOlder)
+// 部分失败时 loadOlder() 不抛错，而是把 historyLoadStatus 置为 'error'
+const historyFailed = useSession(session =&gt; session.historyLoadStatus === 'error')
+const [rejected, setRejected] = useState(false)
+const summary = useMemo(() =&gt; priceSummary(snapshot, prices, lastUsed), [snapshot, prices, lastUsed])
+const requestOlder = (): void =&gt; {
+  setRejected(false)
+  loadOlder().catch((error: unknown) =&gt; {
+    console.warn('client-ui-cost: loading earlier turns failed', error)
+    setRejected(true)
+  })
+}
+const older = !hasMore ? null : (
+  &lt;div className={css.older}&gt;
+    {/* 空状态下不显示“只统计已加载的 N 轮”，N 必须 ≥ 1 */}
+    {snapshot.steps.length === 0 ? null : &lt;span&gt;{t('partial', { count: summary.turns.length })}&lt;/span&gt;}
+    {loadingOlder ? (
+      &lt;span role="status"&gt;{t('loadOlder.loading')}&lt;/span&gt;
+    ) : (
+      &lt;Button size="sm" variant="outline" onClick={requestOlder}&gt;
+        {rejected || historyFailed ? t('loadOlder.failed') : t('loadOlder')}
+      &lt;/Button&gt;
+    )}
+  &lt;/div&gt;
+)</code></pre>
+
+      <h3><span class="tag">现有实现（摘录）</span><code>cost-format.ts</code> · 金额格式</h3>
       <pre tabindex="0"><code class="language-ts">export function formatYuan(value: number): string {
   if (value &gt; 0 &amp;&amp; value &lt; 0.00005) return '&lt;¥0.0001'
   // 4 位四舍五入会得到 1.0000 时改用 2 位
@@ -490,7 +570,7 @@ const prices = resolvePrices(Config(injected).prices)</code></pre>
 
     <section id="summary">
       <h2><span class="material-symbols-outlined" aria-hidden="true">summarize</span>方案小结</h2>
-      <p>本次新增一个独立的浏览器端实验插件，不改动现有事件、投影和服务：通过“每步取前一条请求头的模型”从已有日志中推出模型，计价规则集中在可单测的纯函数中。主要取舍是接受窗口最前段偶尔推不出模型（计入未定价，加载更早后恢复），以此避免修改核心事件格式和两套 SDK 快照。压缩摘要调用和失败重试消耗的 token 不在本次统计范围内，估算可能偏低。</p>
+      <p>本次新增一个独立的浏览器端实验插件，不改动现有事件、投影和服务：通过“每步取前一条请求头的模型”从已有日志中推出模型，计价规则集中在可单测的纯函数中。主要取舍是接受窗口最前段偶尔推不出模型（计入未定价，加载更早后恢复），以此避免修改核心事件格式和两套 SDK 快照。压缩摘要调用和失败重试消耗的 token 不在本次统计范围内，估算可能偏低。实现中补充了 NaN 校验、宿主与浏览器两个编译面，以及空状态下仍可加载更早轮次；真实对话记录的模型 ID 与内置价目表一致，DeepSeek 当前报告的缓存写入量为 0。</p>
     </section>
   </main>
   <script type="module">
