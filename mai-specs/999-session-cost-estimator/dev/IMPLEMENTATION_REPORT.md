@@ -19,6 +19,7 @@
 | T7 覆盖率与构建 | 完成 | `d7e796fdd2` | 见下文；只改了本报告，无代码变更 |
 | T8 人工验收 | 完成（2026-11-13～14） | — | 逐项结果见下文；T8-1b 空状态未在真实运行中观察到，由单元测试覆盖 |
 | T9 核实 Q-02、Q-05 | 完成 | `abd5a82cc8` | 见下文 "T9 核实 Q-02、Q-05"；PRD 已回写（`79f0875a6b`） |
+| 评审修复 P1-1、P1-2 | 完成，未提交（工作区改动） | — | 见下文"代码评审修复"；按[代码评审](../review/code_review.md)方案 A 修复 P1-1，并修复 P1-2；待复评 |
 
 ## 与设计的偏差
 
@@ -39,6 +40,8 @@
 | V-13 | 空状态只显示 C-09（PRD UI-01） | 空状态下若会话还有更早轮次（`hasMore`），在 C-09 下方仍显示"加载更早"按钮，不显示 C-08（C-08 要求 count ≥ 1） | 窗口里恰好没有带用量的步骤时（如最近几轮都被取消），否则用户无法加载更早轮次 | 新增一种显示组合，未新增文案。**负责人已接受（2026-11-13），保留按钮；PRD UI-01 空状态稍后回写** | PRD UI-01 空状态 |
 | V-14 | "加载更早"沿用统计页签的交互（TECH_DESIGN §1.1 复用） | 文案与状态沿用 stats；按钮改用 `ui-primitives` 的 `Button`（`size="sm"`、`variant="outline"`），不复制 stats 的本地 `.button` 样式 | UI 规范要求先复用共享组件；复制 stats 的样式也会触发重复检测 | 外观与 stats 的按钮略有不同（共享按钮的 H28/R8） | TECH_DESIGN §1.1 |
 | V-15 | T6 只列出 README 三件套与 `docs/config-catalog*.md`（TECH_DESIGN T6；§2.3.1 提到 client catalog "如覆盖实验包则一并生成"） | 另外登记与生成：`scripts/verify-package-readme-model-experience.ts` 的 `SENTENCE_MODEL_EXPERIENCE` 新增本包（README 使用简短的 "None, as …" 形式时必须登记）；重新生成 `cordis-client-runner` 的 `slot-catalog.ts`、`docs/event-producer-consumer*.md`、`agent-preset` 的 `dsh-doc/references/packages.md` | `doc-sync` 的相应检查在新增包后报过期或缺登记 | 仅新增本包对应的一行；无行为影响 | TECH_DESIGN T6 变更文件、§2.3.1 仓库登记 |
+| V-16 | 模型回退：窗口内没有任何 `request/header` 时才用 `modelSelection.lastUsed`，有 header 时，第一条 header 之前的步骤一律为 null（TECH_DESIGN §2.1.2 第 2、3 点，D-02、D-04） | ① route 节点带上 header 的 `reason`。窗口内第一条 header 为 `series` 时，它之前的步骤沿用它的模型。<br>② 新增纯函数 `rememberWindowModel`，视图按会话记录 `WindowFallback { model, fromSeq }`：窗口没有 header 时，记下第一次看到的 `lastUsed` 和窗口最早的步骤 seq；更早的无 header 页加载后，`fromSeq` 随之下移；窗口出现 header 后，记录不再变化。<br>③ `priceSummary` 的第三个参数由 `fallbackModel` 改为 `WindowFallback \| null`，只对 `messageSeq >= fromSeq` 且模型为 null 的步骤生效。<br>④ 这条记录放在插件为每个会话注入的对象 `windowModel` 中（slot 的 inject 结果按会话缓存，见 `packages/client/ui-renderer/src/client/scoped-slots.tsx:166-168`），切走页签再回来时不会丢失 | 代码评审 P1-1（已复现）：header 实时进入原本没有 header 的窗口后，原先已计价的步骤变为未定价，合计下降，违反 AC-10。DSH 重启后的第一次请求（`resume`）、压缩后开始新序列（`series`）和工具集变化（`change`）都会触发。用户 2026-11-14 选择方案 A | ① `series` header 与上一条相同（`agent.ts:695-696`），因此沿用是精确的，不是猜测。<br>② `lastUsed` 只会因新的 header 而改变；窗口仍没有 header 时 `lastUsed` 变化，说明有一条 header 还在路上，所以保留第一次的值。<br>③ 页面打开时窗口里已经有 `resume` 或 `change` header 的情况，仍按 D-04 计为未定价 | TECH_DESIGN §2.1.2、§3 R1；CODE_DESIGN §1（`WindowFallback`、route 数据）、§2、§3（`priceSummary` 签名）、§5（注入对象） |
+| V-17 | README"安装与启动"只有 `pnpm install`、`pnpm dsh web …`（TECH_DESIGN T6，AC-14） | 中英文 README 在两条命令之间加入 `pnpm run build`，并说明拉取本包改动后需要重新构建；同时按 V-16 更新"实现原理"与已知限制中"未定价步骤"的说明，`README.i18n.yaml` 重新记录 | 代码评审 P1-2：`pnpm dsh web` 只提供已构建的产物（根 `README.md:36-41`），干净检出上照做不会出现页签 | 无行为影响 | TECH_DESIGN T6 |
 
 ## T1 包骨架与登记
 
@@ -333,3 +336,39 @@ T7 的测试文件已随 T2～T5 交付，本任务只做整体复核，没有�
 **PRD 回写**：Q-02、Q-05 的结论与 V-13 已由 `my-create-prd` 回写 PRD（2026-11-14，提交 `79f0875a6b`）。
 
 **T8 结论**：AC-01、AC-02～AC-10、AC-15 的人工步骤全部通过；AC-11 的空状态只由单元测试覆盖（DSH 新会话在首条消息前没有视图页签，回复期间未切到 Cost）；AC-12 的金额格式在真实界面出现过 `¥1.00` 与四位小数两种形式；AC-13 只验证了英文界面（负责人界面为英文），其余 7 种语言由 locale parity 测试覆盖；AC-14 的 README 命令已在 T6 与 T8 中实际运行。
+
+## 代码评审修复（P1-1、P1-2）
+
+依据：[代码评审](../review/code_review.md)（2026-11-14，结论"有条件合并"）。用户选择 P1-1 方案 A。设计偏差见 V-16、V-17，设计文档未改，待编排者安排设计同步。
+
+**变更（工作区，未提交）**
+
+- `src/client/cost-contract.ts`：新增 `WindowFallback`。
+- `src/client/cost-definition.ts`：route 的 State 和节点数据增加 `reason`（`RequestHeaderReason`）。
+- `src/client/cost-builder.ts`：窗口内第一条 header 为 `series` 时，它之前的步骤沿用它的模型。
+- `src/client/cost-pricing.ts`：新增 `rememberWindowModel`；`priceSummary` 改为接收 `WindowFallback | null`。
+- `src/client/CostView.tsx`、`src/client/index.ts`：注入对象新增按会话的 `windowModel`；视图在 `useMemo` 中先更新这条记录，再计价。对相同输入重复执行会得到相同记录。
+- README 中英文与 `README.i18n.yaml`：见 V-17。
+- 测试：
+  - 测试夹具中 header 的 `reason` 改为真实取值（原先写成对象 `{ kind: 'initial' }`）。
+  - builder：`series` 沿用模型；`resume`、`change` 不沿用。
+  - pricing：`rememberWindowModel` 的 5 种情况；按 `fromSeq` 应用回退；"无 header → 有 header"回归测试（合计单调增加，未定价为 0）。
+  - 视图："无 header → 有 header"回归测试；切走页签再回来（重新挂载）后记录仍在。
+  - 插件：真实装配引擎中实时追加 `resume` header 后两步都已计价；`series` header 使其之前的步骤得到模型；注入对象含 `windowModel`。
+
+**验证（2026-11-14 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm exec vitest run packages/experimental/client-ui-cost --coverage --coverage.include='packages/experimental/client-ui-cost/src/**'` | 8 个文件、114 个用例通过（原 102 个）；语句 196/196、分支 120/120、函数 54/54、行 169/169，均为 100% |
+| `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 1 处超长行（`rememberWindowModel` 签名），改为多行后无错误 |
+| `pnpm run typecheck` | 通过（5/5） |
+| `pnpm run verify-export-jsdoc`、`verify-client-ui-i18n`、`duplication` | 全部通过；0 处克隆 |
+| `pnpm run build:artifacts`，随后 `pnpm run build:check` | 8/8、2/2 通过；`lib/client.js` 已包含新逻辑 |
+| `pnpm run verify-translation-pairing packages/experimental/client-ui-cost/README.md` | 改动后报 3 节未同步，`--write` 重新记录后通过 |
+| `pnpm run test:docs`、`pnpm run doc-sync` | 仍为原有 2 项失败（`mai-specs/README.md` 缺中文对应页、`mai-specs/` 中的提交哈希引用），负责人已于 2026-11-13 接受；README 相关检查通过 |
+
+**未验证**
+
+- P1-2：未在干净检出上执行 README 命令（TC-11 第 1 步）。需要新的 worktree，完成全量 `pnpm install` 和 `pnpm run build`，并在浏览器中观察页签，留待负责人或复评时执行。
+- P1-1 的真实运行复验：重启 DSH 后，打开一个有 `hasMore` 的长会话，停在"花费"页签发送一条消息，合计应增加、不出现未定价。只有自动化证据，未做人工复验。

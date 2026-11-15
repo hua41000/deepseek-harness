@@ -22,7 +22,7 @@ function message(seq: number, time: number, usage?: TokenUsage, turn = 1, step =
 }
 
 function header(seq: number, model: string): SessionEventLike {
-  return event('request/header', seq, seq, { header: { config: { provider: 'deepseek', model } }, reason: { kind: 'initial' } })
+  return event('request/header', seq, seq, { header: { config: { provider: 'deepseek', model } }, reason: 'series' })
 }
 
 function asMatch(item: SessionEventLike, role: 'start' | 'update'): ConversationMatch {
@@ -92,12 +92,12 @@ describe('cost route definition', () => {
     expect(costRouteDefinition.match(message(6, 1, USAGE))).toBeNull()
   })
 
-  it('records the header sequence number and model', () => {
+  it('records the header sequence number, model, and reason', () => {
     const start = asMatch(header(5, 'deepseek-v4-pro'), 'start') as ConversationStartMatch
     const state = costRouteDefinition.start(context<RouteState>(undefined, [start]), start, READER)
-    expect(state).toEqual({ seq: 5, model: 'deepseek-v4-pro' })
+    expect(state).toEqual({ seq: 5, model: 'deepseek-v4-pro', reason: 'series' })
     expect(costRouteDefinition.update({ ...context(state, [start]), state }, start)).toBe(state)
-    expect(costRouteDefinition.buildViewNode!(context(state, [start]))?.data).toEqual({ kind: 'route', seq: 5, model: 'deepseek-v4-pro' })
+    expect(costRouteDefinition.buildViewNode!(context(state, [start]))?.data).toEqual({ kind: 'route', seq: 5, model: 'deepseek-v4-pro', reason: 'series' })
   })
 
   it('rejects a start match of another event type', () => {

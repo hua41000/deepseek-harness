@@ -8,12 +8,12 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
-import { SessionSeq, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type RequestHeaderReason, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { CONFIG_GLOBAL, type Config } from '../src/config.ts'
 import { EMPTY_COST_SNAPSHOT, costViewDefinition } from '../src/client/cost-builder.ts'
 import type { CostSnapshot } from '../src/client/cost-contract.ts'
 import { TARGET } from '../src/client/cost-definition.ts'
-import { BUILTIN_PRICES } from '../src/client/cost-pricing.ts'
+import { BUILTIN_PRICES, priceSummary, rememberWindowModel } from '../src/client/cost-pricing.ts'
 import { CostView, type CostViewInjected } from '../src/client/CostView.tsx'
 import { apply, inject } from '../src/client/index.ts'
 import { de, en, es, fr, ja, NS, pt, ru, zh } from '../src/client/locales.ts'
@@ -108,6 +108,7 @@ describe('browser plugin registration', () => {
     expect(injected.prices['deepseek-v4-pro']).toBe(BUILTIN_PRICES['deepseek-v4-pro'])
     await injected.loadOlder()
     expect(bench.loadOlder).toHaveBeenCalledTimes(1)
+    expect(injected.windowModel).toEqual({ current: null })
   })
 
   it('rejects a Session the binding registry does not know', async () => {
@@ -128,8 +129,8 @@ function entry(type: string, data: object, time = 0): SessionEventLikeEntry {
 
 const USAGE: TokenUsage = { inputTokens: 10_000, outputTokens: 1_000, cacheReadTokens: 90_000 }
 
-function header(model: string): SessionEventLikeEntry {
-  return entry('request/header', { header: { config: { provider: 'deepseek', model } }, reason: { kind: 'initial' } })
+function header(model: string, reason: RequestHeaderReason = 'change'): SessionEventLikeEntry {
+  return entry('request/header', { header: { config: { provider: 'deepseek', model } }, reason })
 }
 
 function step(turn: number, start: number): SessionEventLikeEntry[] {
@@ -177,6 +178,25 @@ describe('assembled Session windows', () => {
       engine.flush()
     }
     expect(engine.get(TARGET)?.steps.map(attributed => [attributed.turn, attributed.model])).toEqual([[1, 'deepseek-flash'], [2, 'deepseek-flash']])
+  })
+
+  it('keeps a header-free window priced after a live resume header and prices it from a series header', async () => {
+    const engine = assembler(await registeredDefinitions())
+    engine.replaceWindow([...step(1, 1_000)], true)
+    engine.flush()
+    const before = engine.get(TARGET)!
+    const fallback = rememberWindowModel(null, before, 'deepseek-flash')
+    for (const record of [header('deepseek-flash', 'resume'), ...step(2, 2_000)]) {
+      engine.append(record)
+      engine.flush()
+    }
+    const after = engine.get(TARGET)!
+    expect(after.windowHasHeader).toBe(true)
+    expect(priceSummary(after, BUILTIN_PRICES, rememberWindowModel(fallback, after, 'deepseek-flash'))).toMatchObject({ pricedSteps: 2, unpricedSteps: 0 })
+    const series = assembler(await registeredDefinitions())
+    series.replaceWindow([...step(1, 1_000), header('deepseek-v4-pro', 'series'), ...step(2, 2_000)], true)
+    series.flush()
+    expect(series.get(TARGET)?.steps.map(attributed => attributed.model)).toEqual(['deepseek-v4-pro', 'deepseek-v4-pro'])
   })
 
   it('recovers the start time and model once an older page loads them', async () => {

@@ -37,10 +37,11 @@ kind: "package-reference"
 
 ```sh
 pnpm install
+pnpm run build
 pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml
 ```
 
-这个 overlay 使用内置价目挂载本包。调用模型需要在环境变量或根目录 `.env` 中设置 `DEEPSEEK_API_KEY`。
+`pnpm run build` 生成 `pnpm dsh web` 提供给浏览器的 bundle；拉取本包的改动后需要重新运行。这个 overlay 使用内置价目挂载本包。调用模型需要在环境变量或根目录 `.env` 中设置 `DEEPSEEK_API_KEY`。
 
 ### 最小配置
 
@@ -86,7 +87,7 @@ pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml
 
 宿主入口在插件加载时校验 `prices`，并把结果写入每个页面。浏览器入口再次校验页面里的值；值不存在时不注册任何内容，因此无效配置不会退回到内置价。
 
-两个会话 Definition 把会话窗口折叠成节点，发布到名为 `cost` 的视图目标。`cost-step` 为每个 `assistant/message` 报告了用量的步骤发布一个节点；`cost-route` 为每条 `request/header` 发布一个节点，会话只在请求的模型或请求头变化时记录这条事件。视图目标把每一步归到它的消息之前最近的一条请求头。窗口里完全没有请求头时，视图使用 `modelSelection` 投影中最近一次请求的模型。计价放在视图里，因为只有视图能读取这个投影。
+两个会话 Definition 把会话窗口折叠成节点，发布到名为 `cost` 的视图目标。`cost-step` 为每个 `assistant/message` 报告了用量的步骤发布一个节点；`cost-route` 为每条 `request/header` 发布一个节点，会话在请求的模型或请求头变化时、循环重启后的第一次请求时（`resume`），以及请求头不变但开始新的请求序列时（`series`）记录这条事件。视图目标把每一步归到它的消息之前最近的一条请求头；窗口里第一条请求头为 `series` 时，它之前的步骤沿用它的模型，因为这种请求头与上一条相同。窗口里没有请求头时，视图按会话记下 `modelSelection` 投影中最近一次请求的模型及其覆盖的最早步骤，之后有请求头实时到达，这些步骤仍按该模型计价。计价放在视图里，因为只有视图能读取这个投影。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -130,7 +131,7 @@ pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml
 金额是估算，存在以下已知偏差：
 
 - **默认产品不挂载。** Web bundle 按规则拒绝实验包；请通过 overlay 或在 profile 中显式加一行挂载。
-- **未定价步骤。** 模型没有单价，或者窗口从模型切换后的第一条请求头之前开始、无法判断该步模型时，该步记为未定价。加载更早的轮次可以消除第二种情况。
+- **未定价步骤。** 模型没有单价，或者窗口从第一条请求头之前开始、该请求头为 `resume` 或 `change`、且页面没有看到它实时到达，因而无法判断该步模型时，该步记为未定价。加载更早的轮次可以消除第二种情况。
 - **模型 ID 必须完全一致。** 只有记录的模型 ID 与 `prices` 或内置价目的键完全相同时才计价；DeepSeek 仍按 Flash 价对 `deepseek-v4-flash` 等旧 ID 计费，但除非你为它们配置单价，本页签会显示为未定价。
 - **部分 token 不计入。** 压缩摘要调用和失败的重试也消耗 token，但它们不是步骤，因此合计可能低于账单。
 - **不识别节假日。** 落在工作日的法定节假日按高峰价计算，而 DeepSeek 实际按空闲价计费。

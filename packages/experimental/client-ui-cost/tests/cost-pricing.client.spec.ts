@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AttributedCostStep, CostSnapshot, PriceTable } from '../src/client/cost-contract.ts'
-import { BUILTIN_PRICES, priceStep, priceSummary, pricePeriod, resolvePrices } from '../src/client/cost-pricing.ts'
+import {
+  BUILTIN_PRICES, priceStep, priceSummary, pricePeriod, rememberWindowModel, resolvePrices,
+} from '../src/client/cost-pricing.ts'
 
 /** Epoch milliseconds of a Beijing wall-clock time (UTC+8). */
 function beijing(month: number, day: number, hour: number, minute = 0, second = 0): number {
@@ -148,16 +150,59 @@ describe('session summary', () => {
     expect(summary).toMatchObject({ total: 0, pricedSteps: 0, unpricedSteps: 1, models: ['other-model'] })
   })
 
-  it('uses the last used model only when the window has no request header', () => {
-    const unknown = [step({ model: null })]
-    expect(priceSummary(snapshot(unknown, false), BUILTIN_PRICES, 'deepseek-flash')).toMatchObject({ pricedSteps: 1, models: ['deepseek-flash'] })
-    expect(priceSummary(snapshot(unknown, true), BUILTIN_PRICES, 'deepseek-flash'))
-      .toMatchObject({ pricedSteps: 0, unpricedSteps: 1, models: [] })
-    expect(priceSummary(snapshot(unknown, false), BUILTIN_PRICES, null)).toMatchObject({ pricedSteps: 0, unpricedSteps: 1 })
+  it('prices unattributed steps from the fallback sequence number on', () => {
+    const fallback = { model: 'deepseek-flash', fromSeq: 2 }
+    const steps = [step({ messageSeq: 1, model: null }), step({ turn: 2, messageSeq: 2, model: null }), step({ turn: 3, messageSeq: 3 })]
+    expect(priceSummary(snapshot(steps), BUILTIN_PRICES, fallback))
+      .toMatchObject({ pricedSteps: 2, unpricedSteps: 1, models: ['deepseek-flash'] })
+    expect(priceSummary(snapshot(steps), BUILTIN_PRICES, null)).toMatchObject({ pricedSteps: 1, unpricedSteps: 2 })
+  })
+
+  it('keeps already priced steps priced when a live header enters a header-free window', () => {
+    const window = [step({ messageSeq: 100, model: null }), step({ turn: 2, messageSeq: 200, model: null })]
+    const before = snapshot(window, false)
+    const fallback = rememberWindowModel(null, before, 'deepseek-flash')
+    const first = priceSummary(before, BUILTIN_PRICES, fallback)
+    // A DSH restart logs a resume header with the next request, before that step's message.
+    const after = snapshot([...window, step({ turn: 3, messageSeq: 400 })], true)
+    const next = priceSummary(after, BUILTIN_PRICES, rememberWindowModel(fallback, after, 'deepseek-flash'))
+    expect(first).toMatchObject({ pricedSteps: 2, unpricedSteps: 0 })
+    expect(next).toMatchObject({ pricedSteps: 3, unpricedSteps: 0 })
+    expect(next.total).toBeGreaterThan(first.total)
   })
 
   it('returns empty totals for an empty snapshot', () => {
     expect(priceSummary(snapshot([], false), BUILTIN_PRICES, null))
       .toEqual({ total: 0, savings: 0, models: [], pricedSteps: 0, unpricedSteps: 0, turns: [] })
+  })
+})
+
+describe('window model record', () => {
+  const later = snapshot([step({ messageSeq: 5, model: null })], false)
+
+  it('records the last used model and the first step of a header-free window', () => {
+    expect(rememberWindowModel(null, later, 'deepseek-flash')).toEqual({ model: 'deepseek-flash', fromSeq: 5 })
+  })
+
+  it('records nothing before the last used model or any step is known', () => {
+    expect(rememberWindowModel(null, later, null)).toBeNull()
+    expect(rememberWindowModel(null, snapshot([], false), 'deepseek-flash')).toBeNull()
+  })
+
+  it('keeps the first model while a newer header has not reached the window', () => {
+    const recorded = { model: 'deepseek-flash', fromSeq: 5 }
+    expect(rememberWindowModel(recorded, later, 'deepseek-v4-pro')).toBe(recorded)
+  })
+
+  it('extends the covered range when an older header-free page loads', () => {
+    const paged = snapshot([step({ messageSeq: 2, model: null }), step({ messageSeq: 5, model: null })], false)
+    expect(rememberWindowModel({ model: 'deepseek-flash', fromSeq: 5 }, paged, 'deepseek-v4-pro')).toEqual({ model: 'deepseek-flash', fromSeq: 2 })
+  })
+
+  it('stops changing once the window holds a header', () => {
+    const recorded = { model: 'deepseek-flash', fromSeq: 5 }
+    const withHeader = snapshot([step({ messageSeq: 1, model: null }), step({ messageSeq: 5, model: null })], true)
+    expect(rememberWindowModel(recorded, withHeader, 'deepseek-v4-pro')).toBe(recorded)
+    expect(rememberWindowModel(null, withHeader, 'deepseek-v4-pro')).toBeNull()
   })
 })

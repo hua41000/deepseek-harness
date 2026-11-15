@@ -53,6 +53,18 @@ export interface AttributedCostStep extends CostStep {
   readonly model: string | null
 }
 
+/**
+ * Model of the steps a loaded window held while it contained no `request/header`.
+ * The window is a contiguous suffix of the Session log, so every such step ran on
+ * the Session's last used model at that moment, even after a later header arrives.
+ */
+export interface WindowFallback {
+  /** Model id the Session last used while the window had no header. */
+  readonly model: string
+  /** Lowest message sequence number of the steps this model covers. */
+  readonly fromSeq: number
+}
+
 /** Cost View snapshot of the loaded Session window. */
 export interface CostSnapshot {
   /** Steps with recorded usage, ordered by `messageSeq`. */

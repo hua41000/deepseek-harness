@@ -1,6 +1,6 @@
 /** Step pricing, price periods, and Session cost totals. */
 
-import type { CostSnapshot, CostStep, CostSummary, PricePeriod, PriceTable } from './cost-contract.ts'
+import type { CostSnapshot, CostStep, CostSummary, PricePeriod, PriceTable, WindowFallback } from './cost-contract.ts'
 
 /**
  * DeepSeek list prices in yuan per million tokens. This is business data, not a
@@ -75,14 +75,35 @@ interface TurnAccumulator {
 }
 
 /**
+ * Track the model of the steps a window holds while it contains no `request/header`.
+ * The first model seen is kept: the last used model changes only through a new
+ * header, so a change while the window shows none belongs to a header that has
+ * not reached the window yet. Older header-free pages extend the covered range;
+ * once a header is loaded the fallback no longer changes.
+ * @param previous - fallback recorded for the same Session, or null.
+ * @param snapshot - attributed steps of the loaded window.
+ * @param lastUsed - the Session's last used model, or null before it is known.
+ * @returns the fallback to price unattributed steps with, or null when none is known.
+ */
+export function rememberWindowModel(
+  previous: WindowFallback | null,
+  snapshot: CostSnapshot,
+  lastUsed: string | null,
+): WindowFallback | null {
+  const first = snapshot.steps[0]
+  if (snapshot.windowHasHeader || first === undefined) return previous
+  if (previous === null) return lastUsed === null ? null : { model: lastUsed, fromSeq: first.messageSeq }
+  return first.messageSeq < previous.fromSeq ? { model: previous.model, fromSeq: first.messageSeq } : previous
+}
+
+/**
  * Price every step of a snapshot and total the results per turn and per Session.
  * @param snapshot - attributed steps of the loaded window.
  * @param table - effective price table.
- * @param fallbackModel - the Session's last used model; applies only when the window contains no `request/header`.
+ * @param fallback - model for steps without an attributed model, applied from its `fromSeq` on; null when none is known.
  * @returns totals, model list, step counts, and turn rows.
  */
-export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallbackModel: string | null): CostSummary {
-  const fallback = snapshot.windowHasHeader ? null : fallbackModel
+export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback: WindowFallback | null): CostSummary {
   const turns = new Map<number, TurnAccumulator>()
   const models = new Set<string>()
   let total = 0
@@ -90,7 +111,7 @@ export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback
   let pricedSteps = 0
   let unpricedSteps = 0
   for (const step of snapshot.steps) {
-    const model = step.model ?? fallback
+    const model = step.model ?? (fallback !== null && step.messageSeq >= fallback.fromSeq ? fallback.model : null)
     if (model !== null) models.add(model)
     let row = turns.get(step.turn)
     if (row === undefined) {

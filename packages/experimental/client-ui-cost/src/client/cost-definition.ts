@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationNodeContext, ConversationNodeDefinition, ConversationViewNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { RequestHeaderReason } from '@deepseek-ai/dsh-session/types'
 import type { CostStep } from './cost-contract.ts'
 
 /** View target shared by both Definitions and the snapshot builder. */
@@ -20,7 +21,7 @@ export const TARGET = 'cost'
 /** Business data of one cost target node. */
 export type CostNodeData =
   | { readonly kind: 'step'; readonly step: CostStep }
-  | { readonly kind: 'route'; readonly seq: number; readonly model: string }
+  | { readonly kind: 'route'; readonly seq: number; readonly model: string; readonly reason: RequestHeaderReason }
 
 /** A node published into the cost target. */
 export interface CostViewNode extends ConversationViewNode {
@@ -28,10 +29,11 @@ export interface CostViewNode extends ConversationViewNode {
   readonly data: CostNodeData
 }
 
-/** State of a route Context: the header's sequence number and model id. */
+/** State of a route Context: the header's sequence number, model id, and logging reason. */
 interface RouteState {
   readonly seq: number
   readonly model: string
+  readonly reason: RequestHeaderReason
 }
 
 /** Wrap node data in the target's envelope. */
@@ -85,12 +87,12 @@ export const costRouteDefinition: ConversationNodeDefinition<RouteState> = {
   match: event => (event.type === 'request/header' ? { id: `${event.seq}`, role: 'start' } : null),
   start: (_context, match) => {
     if (match.event.type !== 'request/header') throw new Error('cost-route start requires request/header')
-    return { seq: match.event.seq, model: match.event.data.header.config.model }
+    return { seq: match.event.seq, model: match.event.data.header.config.model, reason: match.event.data.reason }
   },
   update: context => context.state,
   buildViewNode: (context) => {
     const state = context.state
-    return state === undefined ? null : costNode(context, { kind: 'route', seq: state.seq, model: state.model })
+    return state === undefined ? null : costNode(context, { kind: 'route', ...state })
   },
 }
 

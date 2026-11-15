@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { EMPTY_COST_SNAPSHOT, attributeModels, costViewDefinition } from '../src/client/cost-builder.ts'
+import type { RequestHeaderReason } from '@deepseek-ai/dsh-session/types'
 import type { CostStep } from '../src/client/cost-contract.ts'
 import { TARGET, type CostViewNode } from '../src/client/cost-definition.ts'
 
@@ -11,8 +12,8 @@ function step(messageSeq: number, turn = 1): CostViewNode {
   return { key: `step:${messageSeq}`, kind: 'cost-step', id: `${turn}:${messageSeq}`, target: TARGET, data: { kind: 'step', step: data } }
 }
 
-function route(seq: number, model: string): CostViewNode {
-  return { key: `route:${seq}`, kind: 'cost-route', id: `${seq}`, target: TARGET, data: { kind: 'route', seq, model } }
+function route(seq: number, model: string, reason: RequestHeaderReason = 'change'): CostViewNode {
+  return { key: `route:${seq}`, kind: 'cost-route', id: `${seq}`, target: TARGET, data: { kind: 'route', seq, model, reason } }
 }
 
 function models(nodes: CostViewNode[]): (string | null)[] {
@@ -32,6 +33,14 @@ describe('model attribution', () => {
     const snapshot = attributeModels([step(2), route(4, 'deepseek-flash'), step(5)])
     expect(snapshot.windowHasHeader).toBe(true)
     expect(snapshot.steps.map(attributed => attributed.model)).toEqual([null, 'deepseek-flash'])
+  })
+
+  it('attributes steps before a leading series header to its model', () => {
+    expect(models([step(2), route(4, 'deepseek-flash', 'series'), step(5)])).toEqual(['deepseek-flash', 'deepseek-flash'])
+  })
+
+  it.each(['resume', 'change'] as const)('leaves steps before a leading %s header unknown', (reason) => {
+    expect(models([step(2), route(4, 'deepseek-flash', reason), step(5)])).toEqual([null, 'deepseek-flash'])
   })
 
   it('switches models at each later header', () => {

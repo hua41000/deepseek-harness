@@ -6,9 +6,9 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CostSnapshot, CostSummary, CostTurnRow, PriceTable } from './cost-contract.ts'
+import type { CostSnapshot, CostSummary, CostTurnRow, PriceTable, WindowFallback } from './cost-contract.ts'
 import { formatTokens, formatYuan } from './cost-format.ts'
-import { priceSummary } from './cost-pricing.ts'
+import { priceSummary, rememberWindowModel } from './cost-pricing.ts'
 import type { CostTranslate } from './locales.ts'
 import css from './cost.module.css'
 
@@ -26,6 +26,11 @@ export interface CostViewInjected {
    * @returns settles when the page request ends; rejects when it fails.
    */
   loadOlder: () => Promise<void>
+  /**
+   * Per-Session record of the model that priced the header-free window. It lives
+   * with the injected values, so it outlasts switching away from the tab.
+   */
+  windowModel: { current: WindowFallback | null }
 }
 
 /** Full props of the cost View. */
@@ -81,18 +86,22 @@ function CostCell({ row, t }: { readonly row: CostTurnRow; readonly t: CostTrans
  * Render the cost of the loaded Session window. Pricing runs here because the
  * fallback model comes from a Session projection that the view target cannot read.
  * @param props - composed conversation View props: the cost snapshot hook, prices, the older-page
- *   loader, Session state, and the locale seat.
+ *   loader, the per-Session window model record, Session state, and the locale seat.
  * @returns the empty state, or the summary card, the partial-window notice, and the turn table.
  */
 export function CostView(props: CostViewProps): ReactElement {
-  const { useCost, useSession, useProjection, prices, loadOlder, t } = props
+  const { useCost, useSession, useProjection, prices, loadOlder, windowModel, t } = props
   const snapshot = useCost(value => value)
   const lastUsed = useProjection('modelSelection', value => value?.lastUsed?.model ?? null)
   const hasMore = useSession(session => session.hasMore)
   const loadingOlder = useSession(session => session.loadingOlder)
   const historyFailed = useSession(session => session.historyLoadStatus === 'error')
   const [rejected, setRejected] = useState(false)
-  const summary = useMemo(() => priceSummary(snapshot, prices, lastUsed), [snapshot, prices, lastUsed])
+  const summary = useMemo(() => {
+    // Idempotent for equal inputs: repeating a render records the same fallback.
+    windowModel.current = rememberWindowModel(windowModel.current, snapshot, lastUsed)
+    return priceSummary(snapshot, prices, windowModel.current)
+  }, [windowModel, snapshot, prices, lastUsed])
   const requestOlder = (): void => {
     setRejected(false)
     loadOlder().catch((error: unknown) => {

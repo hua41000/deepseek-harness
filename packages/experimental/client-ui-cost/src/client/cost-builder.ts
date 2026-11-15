@@ -19,13 +19,15 @@ export const EMPTY_COST_SNAPSHOT: CostSnapshot = { steps: [], windowHasHeader: f
 /**
  * Attribute each step to the model of the latest `request/header` before its
  * `assistant/message`. A header precedes the message of its own step, so the
- * two sequence numbers are never equal. The result depends only on the node
- * set, not on the order in which paging or live updates delivered it.
+ * two sequence numbers are never equal. The Session logs a `series` header only
+ * when it equals the previous header, so steps before a leading `series` header
+ * ran on its model. The result depends only on the node set, not on the order
+ * in which paging or live updates delivered it.
  * @param nodes - current cost target nodes.
- * @returns steps ordered by message sequence, with a null model when no earlier header is loaded.
+ * @returns steps ordered by message sequence, with a null model when no loaded header determines it.
  */
 export function attributeModels(nodes: Iterable<CostViewNode>): CostSnapshot {
-  const routes: { seq: number; model: string }[] = []
+  const routes: Extract<CostViewNode['data'], { kind: 'route' }>[] = []
   const steps: CostStep[] = []
   for (const node of nodes) {
     switch (node.data.kind) {
@@ -43,7 +45,8 @@ export function attributeModels(nodes: Iterable<CostViewNode>): CostSnapshot {
   routes.sort((a, b) => a.seq - b.seq)
   steps.sort((a, b) => a.messageSeq - b.messageSeq)
   // Both lists ascend by seq, so one cursor walks the routes once.
-  let model: string | null = null
+  const leading = routes[0]
+  let model: string | null = leading?.reason === 'series' ? leading.model : null
   let next = 0
   const attributed = steps.map((step): AttributedCostStep => {
     for (let route = routes[next]; route !== undefined && route.seq < step.messageSeq; route = routes[++next]) model = route.model

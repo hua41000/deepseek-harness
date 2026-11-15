@@ -77,6 +77,7 @@ export function apply(ctx: Context): void {
         },
         prices,
         loadOlder: () => session.loadOlder(),
+        windowModel: { current: null },
       }
     },
   }, CostView))

@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { AttributedCostStep, CostSnapshot } from '../src/client/cost-contract.ts'
+import type { AttributedCostStep, CostSnapshot, WindowFallback } from '../src/client/cost-contract.ts'
 import { BUILTIN_PRICES } from '../src/client/cost-pricing.ts'
 import { CostView } from '../src/client/CostView.tsx'
 import { en, zh } from '../src/client/locales.ts'
@@ -40,7 +40,12 @@ interface Mounted {
 /** Render the View with every prop it consumes. */
 function mount(
   snapshot: CostSnapshot,
-  options: { readonly session?: Partial<SessionState>; readonly lastUsed?: string; readonly translate?: typeof t } = {},
+  options: {
+    readonly session?: Partial<SessionState>
+    readonly lastUsed?: string
+    readonly translate?: typeof t
+    readonly windowModel?: { current: WindowFallback | null }
+  } = {},
 ): Mounted {
   const cost = createSnapshotStore<CostSnapshot>(snapshot)
   const session = createSnapshotStore<SessionState>({ hasMore: false, loadingOlder: false, historyLoadStatus: 'idle', ...options.session })
@@ -53,6 +58,7 @@ function mount(
     useProjection,
     prices: BUILTIN_PRICES,
     loadOlder,
+    windowModel: options.windowModel ?? { current: null },
     t: options.translate ?? t,
   } as never))
   return { cost, session, loadOlder }
@@ -128,6 +134,23 @@ describe('cost view', () => {
     mount({ steps: [step(1, null)], windowHasHeader: false }, { lastUsed: 'deepseek-flash' })
     expect(within(card()).getByText('¥0.0316')).toBeTruthy()
     expect(within(card()).getByText('deepseek-flash')).toBeTruthy()
+  })
+
+  it('keeps header-free steps priced when a live request header arrives', () => {
+    const mounted = mount({ steps: [step(1, null, 100)], windowHasHeader: false }, { lastUsed: 'deepseek-flash' })
+    expect(within(card()).getByText('¥0.0316')).toBeTruthy()
+    act(() => { mounted.cost.set({ steps: [step(1, null, 100), step(2, 'deepseek-flash', 400)], windowHasHeader: true }) })
+    expect(within(card()).getByText('¥0.0632')).toBeTruthy()
+    expect(within(card()).queryByText(/未定价/)).toBeNull()
+  })
+
+  it('keeps the window model record across remounts of the tab', () => {
+    const windowModel = { current: null as WindowFallback | null }
+    mount({ steps: [step(1, null, 100)], windowHasHeader: false }, { lastUsed: 'deepseek-flash', windowModel })
+    cleanup()
+    mount({ steps: [step(1, null, 100), step(2, 'deepseek-v4-pro', 400)], windowHasHeader: true }, { lastUsed: 'deepseek-v4-pro', windowModel })
+    expect(within(screen.getByRole('table')).getByText('¥0.0316')).toBeTruthy()
+    expect(within(card()).getByText('deepseek-flash、deepseek-v4-pro')).toBeTruthy()
   })
 
   it('updates the amounts when a new step arrives', () => {
