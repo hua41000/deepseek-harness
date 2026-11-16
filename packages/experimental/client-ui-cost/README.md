@@ -136,6 +136,7 @@ The figures are estimates with these known gaps:
 - **Some token use is not counted.** Compaction summary calls and failed retry attempts consume tokens but are not steps, so the total can be lower than the bill.
 - **Holidays are not recognized.** A public holiday on a weekday is priced at peak rates, although DeepSeek bills it off-peak.
 - **Window start time.** When a step's `step/start` is outside the loaded window, its message time stands in for the start time, which can pick the wrong period for a step that crossed a period boundary.
+- **Model switch inside a repaired gap.** When a reconnect repairs a gap in the window and the user switched models inside the missing stretch, the steps of the repaired page can be priced at the previous model without an unpriced mark. Reloading the page drops the remembered model, so those steps are priced from the loaded request headers or shown as unpriced.
 - **Cache writes use the miss price.** DeepSeek lists no separate cache-write price.
 - **No Web end-to-end or recorded-session coverage yet.** Package tests cover pricing, attribution through the real conversation assembler, configuration, registration, and the jsdom View.
 
