@@ -8,6 +8,23 @@ DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的�
 
 文档：[https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
 
+## 作业：会话花费估算插件
+
+作业在 [`homework-1-build-plugin`](https://github.com/hua41000/deepseek-harness/tree/homework-1-build-plugin) 分支上，不在 `master`。它新增实验性 Web 插件 `@deepseek-ai/dsh-client-ui-cost`：增加一个「花费」页签，估算每轮和已加载会话的人民币花费与缓存节省。
+
+- 插件代码与用法：[`packages/experimental/client-ui-cost`](https://github.com/hua41000/deepseek-harness/tree/homework-1-build-plugin/packages/experimental/client-ui-cost)。
+- SDD 过程文档（PRD、技术方案、方案评审、测试计划、实现报告、代码评审）：[`mai-specs/999-session-cost-estimator`](https://github.com/hua41000/deepseek-harness/tree/homework-1-build-plugin/mai-specs/999-session-cost-estimator)。
+- 完整作业说明（含已知检查结果）：该分支的根 README。
+
+```sh
+git clone https://github.com/hua41000/deepseek-harness.git
+cd deepseek-harness
+git checkout homework-1-build-plugin
+pnpm install
+pnpm run build
+pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml
+```
+
 ## 开发者预览
 
 DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
