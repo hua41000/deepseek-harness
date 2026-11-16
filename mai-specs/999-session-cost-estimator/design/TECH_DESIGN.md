@@ -1,6 +1,6 @@
 # 会话花费估算插件 技术方案
 
-> Feature：999 | 有效需求来源：[PRD](../spec/PRD.md)（2026-11-14 修订，AC-01～AC-15） | Profile：standard | 模板：`mai-specs/_templates/TECH_DESIGN.tmpl.md` | 代码基线：`homework-1-build-plugin` @ `a9f6f7694f` | 状态：已按实现同步（2026-11-14）。依据[实现报告](../dev/IMPLEMENTATION_REPORT.md)的"与设计的偏差"（V-01～V-15）与"T9 核实 Q-02、Q-05"；[方案评审](../review/design_review.md)结论为有条件通过，P1 两项已在实现中落实（D-08、D-09）
+> Feature：999 | 有效需求来源：[PRD](../spec/PRD.md)（2026-11-14 修订，AC-01～AC-15） | Profile：standard | 模板：`mai-specs/_templates/TECH_DESIGN.tmpl.md` | 代码基线：`homework-1-build-plugin` @ `666b34933e` | 状态：已按实现同步（2026-11-15）。依据[实现报告](../dev/IMPLEMENTATION_REPORT.md)的"与设计的偏差"（V-01～V-18）与"T9 核实 Q-02、Q-05"，以及[代码评审](../review/code_review.md)复评二（§R2，结论"建议合并"）；[方案评审](../review/design_review.md)结论为有条件通过，P1 两项已在实现中落实（D-08、D-09）
 
 [返回需求简报](../BRIEF.md) · [代码设计附录](CODE_DESIGN.md)
 
@@ -12,7 +12,7 @@
 
 | 编号 | 结论 | 依据 | 对 PRD 的影响 |
 |---|---|---|---|
-| Q-04（阻塞项） | **可行，有限制**。步骤开始时间取 `step/start` 事件的 `time`。模型 ID 不在 `assistant/message` 上，只在模型或请求头**变化时**记入 `request/header`（`header.config.model`），同一步内先于 `assistant/message` 写入。浏览器端取"该步 `assistant/message` 之前最近一条 `request/header`"的模型。窗口内没有任何 `request/header` 时，用宿主投影 `modelSelection.lastUsed`。窗口内有 header，但某步在第一条 header 之前时，推不出模型 | `packages/core/session/src/types.ts`（`SessionEventMap`）、`packages/core/agent-loop/src/agent.ts` `buildRequest()`、`packages/core/agent/src/model-selection.ts` | 推不出模型的步骤**计入未定价**（2026-11-11 用户决定 D-04），沿用 C-07、C-11，不新增文案 |
+| Q-04（阻塞项） | **可行，有限制**。步骤开始时间取 `step/start` 事件的 `time`。模型 ID 不在 `assistant/message` 上，只在模型或请求头**变化时**记入 `request/header`（`header.config.model`），同一步内先于 `assistant/message` 写入。浏览器端取"该步 `assistant/message` 之前最近一条 `request/header`"的模型。窗口内第一条 header 之前的步骤：该 header 为 `series` 时沿用它的模型；窗口没有 header 期间，视图按会话记下宿主投影 `modelSelection.lastUsed` 及所覆盖的起点，之后有 header 实时到达仍沿用；其余情况推不出模型（规则见 §2.1.2 第 2、3 点，实现报告 V-16、V-18） | `packages/core/session/src/types.ts`（`SessionEventMap`）、`packages/core/agent-loop/src/agent.ts` `buildRequest()`、`packages/core/agent/src/model-selection.ts` | 推不出模型的步骤**计入未定价**（2026-11-11 用户决定 D-04），沿用 C-07、C-11，不新增文案 |
 | Q-02 | **已解决**（2026-11-13，任务 T9）。DeepSeek 适配器把 `cache_creation_input_tokens` 映射为 `cacheWriteTokens`（`packages/llm/llm-deepseek/src/translate.ts`）；4 个真实会话共 109 个带用量的步骤中，该字段都存在且都为 0。BR-01 的写入规则保留，当前不影响计价结果 | [实现报告 T9](../dev/IMPLEMENTATION_REPORT.md#t9-核实-q-02q-05) | **已回写**（2026-11-14，PRD Q-02 与 BR-01 注） |
 | Q-03 | 仓库测试 `scripts/locale-dictionary-parity.spec.ts` 要求对象形式词典注册全部 8 种已发布语言（`scripts/shipped-locales.ts`）。因此提供 zh、en、ja、de、es、fr、pt、ru 共 8 种 | 同左 | NFR-01 写的是"至少中英文"，8 种语言满足该要求，不需回改 |
 | PRD UI-01"错误"状态 | **改为加载时报错**（2026-11-11 用户决定 D-05）。单价配置由 schemastery 校验，负数或非数字会让插件加载失败，并报出字段路径。这符合 AGENTS.md "Misconfiguration fails loud at load" | AGENTS.md Conventions | **已同步**（2026-11-11，PRD commit `195a9e7bed`）：PRD UI-01"错误"状态已改为"单价配置无效时插件加载失败并报出出错字段"，并新增 AC-15 |
@@ -74,9 +74,9 @@ flowchart LR
 | 决策 | 推荐及理由 | 代价与备选 | 待判断事项/确认状态 | 详情 |
 |---|---|---|---|---|
 | D-01 新建独立实验包，不扩展 `client-ui-stats` | 需求是一个独立页签，自成一个功能单元；stats 已有 6000+ 行，混入会增加它的维护面 | 每轮的 token 格式化函数要小量重复实现，需过 `pnpm run duplication`。备选：在 stats 中加一列，但 PRD 明确要求单独页签（FR-01） | 已按 PRD 定 | §2.3.1 |
-| D-02 模型归属在浏览器端按 `request/header` 推导 | 不改核心事件，也不新增投影，零宿主改动 | 窗口最前段可能推不出模型（D-04）。备选：新增宿主投影，或在 `assistant/message` 上加 `model` 字段，但这会改 `SessionEventMap` 并牵动两套 SDK 快照，成本远超当前需求 | 已实现（T3）；`lastUsed` 回退的前提已核实（R6） | [CODE_DESIGN §2](CODE_DESIGN.md#2-模型归属cost-builderts) |
+| D-02 模型归属在浏览器端按 `request/header` 推导 | 不改核心事件，也不新增投影，零宿主改动 | 窗口最前段可能推不出模型（D-04）。备选：新增宿主投影，或在 `assistant/message` 上加 `model` 字段，但这会改 `SessionEventMap` 并牵动两套 SDK 快照，成本远超当前需求 | 已实现（T3）；`lastUsed` 回退的前提已核实（R6）。**回退规则已修改**（代码评审 P1-1、P1-3，用户 2026-11-14 选方案 A）：`series` 头沿用其模型，`lastUsed` 改为视图按会话记录的 `WindowFallback`，窗口被整体替换时丢弃记录（V-16、V-18，§2.1.2 第 2、3 点） | [CODE_DESIGN §2](CODE_DESIGN.md#2-模型归属cost-builderts)、[§3](CODE_DESIGN.md#3-计价与汇总cost-pricingts) |
 | D-03 配置经宿主入口注入页面 | 仓库中已有且有文档说明的模式（documentpreview README："Settings are embedded in each served page"）。配置在宿主加载时校验 | 修改配置后需重启并刷新页面。备选：用户设置页编辑，需要新增设置存储和 UI，超出范围 | 已定 | [CODE_DESIGN §4](CODE_DESIGN.md#4-配置与宿主入口configts--indexts) |
-| D-04 推不出模型的步骤计入未定价 | 不新增状态和文案；加载更早轮次后自动消失 | "未定价"在这种情况下的含义略宽，README 中说明 | **用户已确认（2026-11-11）** | §2.1.2 |
+| D-04 推不出模型的步骤计入未定价 | 不新增状态和文案；加载更早轮次后自动消失 | "未定价"在这种情况下的含义略宽，README 中说明 | **用户已确认（2026-11-11）**。适用范围已收窄（V-16、V-18）：只剩窗口第一条 header 为 `resume` / `change`、且它之前的步骤没有有效的窗口模型记录（页面打开时 header 已在窗口内，或窗口被替换为含 header 的更晚页）的情况 | §2.1.2 |
 | D-05 无效单价加载时报错 | 遵循仓库硬规则 | 与 PRD UI-01"错误"状态不同 | **用户已确认（2026-11-11）**；PRD 已同步（UI-01、AC-15） | 需求依据表 |
 | D-06 配置按模型**整条**提供（两个时段 × 三个单价），整条替换内置价 | 语义简单：一个模型只有一个价格来源，无需字段级合并 | AC-07 中用户要写全 `deepseek-flash` 的 6 个数。备选：字段级合并，需定义合并与缺省规则，测试面翻倍 | **已接受**（2026-11-11，评审 P2-1） | [CODE_DESIGN §4](CODE_DESIGN.md#4-配置与宿主入口configts--indexts) |
 | D-08 "加载更早"直接调用 `session.loadOlder()`，状态由 `useSession` 读取会话快照的 `loadingOlder` 与 `hasMore`；`historyLoadStatus === 'error'` 时同样显示可重试的失败提示（V-12） | 本页签只有一个按钮，不需要 stats 为滚动到顶自动加载、保持滚动位置所做的 `grew` / `retry` / `exhausted` 判断；`loadOlder()` 的契约保证请求进行中时返回同一个完成结果（`packages/api/session-controller/src/client/contract/session.ts` 中 `loadOlder` 的 JSDoc）。照搬 stats 的 `whenOpened` 和 `loadOlder`（`client-ui-stats/src/client/index.ts:33-52`、`:95-120`）会触发 `pnpm run duplication`（`.jscpd.json`：60 token / 6 行，`exitCode: 1`） | 无。会话尚未打开时点击，由会话本身处理（`loadOlder` 在未打开时为空操作，按钮因 `hasMore` 为 false 也不显示） | **已修改**（评审 P1-1）；已实现，T8-4 人工验收通过，`pnpm run duplication` 为 0 处克隆 | §2.1.2 第 4 点；[CODE_DESIGN §5](CODE_DESIGN.md#5-视图要点costviewtsx) |
@@ -92,8 +92,9 @@ flowchart LR
 不新增持久化数据，不新增会话事件。浏览器端的内存结构（完整类型见 [CODE_DESIGN §1](CODE_DESIGN.md#1-类型cost-contractts)）：
 
 - `CostStepNode`：一步的 `turn`、`step`、开始时间、`assistant/message` 的 seq，以及四类 token。没有 `usage` 的步骤不产生节点，即 BR-06。
-- `CostRouteNode`：一条 `request/header` 的 seq 与 `model`。
+- `CostRouteNode`：一条 `request/header` 的 seq、`model` 与 `reason`（`RequestHeaderReason`，用于识别 `series`，V-16）。
 - `CostSnapshot`（builder 输出）：`steps`（已带推导出的 `model: string | null`）、`windowHasHeader`。
+- `WindowFallback`：`{ model, fromSeq }`，视图按会话记录的窗口模型，只用于 `messageSeq >= fromSeq` 且模型为 null 的步骤（V-16）。保存在插件为每个会话注入的对象 `windowModel` 中，生命周期与注入结果的缓存相同（按 entry × 会话 binding，`packages/client/ui-renderer/src/client/scoped-slots.tsx:161-168`），切走页签再回来不会丢失。
 - `PriceTable`：`Record<modelId, { peak: UnitPrices; offPeak: UnitPrices }>`，`UnitPrices = { cacheHit, cacheMiss, output }`，单位为元 / 百万 token。
 - `CostSummary`（计价输出）：合计金额、缓存节省、模型列表、未定价步数、每轮行。
 
@@ -102,9 +103,14 @@ flowchart LR
 1. **折叠**：
    - `cost-step` Definition 的 State 只保存 `step/start` 的时间；`buildViewNode` 直接从 `context.matches` 取最后一条 `assistant/message` 读用量，不复制 stats 的折叠状态机（实现报告 V-06）。起点不在窗口内时引擎不调用 `start`，State 为空，开始时间回退为该消息的 `time`，与真实开始时间相差一个模型调用时长，只影响跨越时段边界的那一步（R2）。结果只取决于当前 matches，与分页、实时更新的到达顺序无关。
    - `cost-route` Definition 为每条 `request/header` 生成一个节点。
-2. **模型归属**（builder）：把 route 节点按 seq 排序。每步取 `seq < step.messageSeq` 的最近一条 route 的模型。找不到时为 `null`，并输出 `windowHasHeader`。
+2. **模型归属**（builder）：把 route 节点按 seq 排序。每步取 `seq < step.messageSeq` 的最近一条 route 的模型。找不到时，若窗口内第一条 route 的 `reason` 为 `series`，沿用它的模型：会话只在 header 与上一条相同时写入 `series`（`packages/core/agent-loop/src/agent.ts:695-696`），所以这是精确推断；否则为 `null`。同时输出 `windowHasHeader`。
 3. **计价**（视图 `useMemo`）：
-   - `model === null` 且 `!windowHasHeader` 时，用 `modelSelection.lastUsed?.model`：窗口内没有任何 header，说明窗口期间模型未变。
+   - 先用纯函数 `rememberWindowModel(previous, snapshot, lastUsed)` 更新本会话的 `WindowFallback` 记录（V-16、V-18）：
+     - 窗口没有步骤：保留原记录。
+     - 窗口第一步的 `messageSeq` 大于记录的 `fromSeq`：说明窗口被整体替换为更晚的页（断线续传、缺口修复或重新打开，`journal-stream.ts` 的 `type: 'replace'` → `session.ts` `installWindow`），丢弃原记录。依据：加载更早只会让起点前移，实时追加不改变起点，窗口头部节点不会被删除。
+     - 窗口有 header：记录不再变化（没有记录时保持为 null）。
+     - 窗口没有 header：没有记录时记下当前 `lastUsed` 与窗口第一步的 seq；已有记录时保留第一次看到的模型，起点随更早的页前移。保留首个模型的依据：`lastUsed` 只会因新的 header 而改变（`packages/core/agent/src/model-selection.ts:81-84`），窗口仍无 header 时它变化，说明该 header 还没进入窗口。
+   - `model === null` 且 `messageSeq >= fallback.fromSeq` 时用记录的模型。这样 header 实时进入原本无 header 的窗口后，已计价的步骤仍按原模型计价，合计不会下降（AC-10）。
    - 其余 `null` 记为未定价（D-04）。
    - 取价：配置优先于内置（BR-04）。按北京时间判断时段（BR-02），按 BR-01、BR-03 计算，再汇总为每轮和合计。
 4. **部分加载**：视图用槽位标准属性 `useSession` 读取会话快照（`conversation.view` 是 session 作用域槽位，`useSession` 由 ui-session 提供，不另行注入，实现报告 V-12）。`hasMore === true` 时显示区域 C（C-08 中的 count 取已加载步骤涉及的轮次数）。"加载更早"按钮直接调用注入的 `loadOlder`（即 `session.loadOlder()`）：`loadingOlder` 为 true 时显示加载中、不显示按钮；`loadOlder()` 被拒绝，或会话的 `historyLoadStatus` 为 `error`（部分失败场景下 `loadOlder()` 不抛错而是置该状态）时，按钮显示 C-13 并可重试；加载完成后 `hasMore` 变为 false，提示条消失（D-08）。
@@ -140,16 +146,16 @@ flowchart LR
 | `package.json` | 包名 `@deepseek-ai/dsh-client-ui-cost`（V-01）。参照 stats：`dsh.client.inject` 列出 `dsh-api-session-controller`、`dsh-client-locale`、`dsh-client-ui-conversation`、`dsh-client-ui-renderer`，`platform: web`；`exports` 包含 `.`、`./client`、`./locale/*.json`；`dependencies` 含 `@deepseek-ai/schemastery`（宿主与浏览器两端运行时都要用） |
 | `tsconfig.json`、`tsconfig.host.json`、`tsconfig.client.json`、`tsdown.config.ts` | 按 Host / Client 两个编译面拆分（AGENTS.md "Keep compiler faces explicit"，做法同 `client-ui-sidebar-documentpreview`、`client-ui-cot-translation`，实现报告 V-02）：`tsconfig.host.json` 只含 `src/index.ts`、`src/config.ts`、`src/client/cost-contract.ts`（`config.ts` 引用其中的价目表类型，V-08），引用 `host/webserver`（仅类型）；`tsconfig.client.json` 含 `src/client`、`src/config.ts`、`src/css-modules.d.ts`；`tsconfig.json` 只做汇总 |
 | `src/index.ts`、`src/config.ts` | 宿主入口：`Config` schema（含 NaN 检查）、导出常量 `CONFIG_GLOBAL`，以及 `webserver/index-inject` 注入 |
-| `src/client/index.ts` | 导出函数 `injectedPrices(injected)` 读取并校验全局配置（缺失时抛错，D-09），`apply` 第一行调用它；随后注册语言包、Definitions、view target 和页签；向视图注入 `hooks.cost`、生效价目表 `prices` 和 `loadOlder: () => session.loadOlder()`（D-08、V-08、V-12） |
+| `src/client/index.ts` | 导出函数 `injectedPrices(injected)` 读取并校验全局配置（缺失时抛错，D-09），`apply` 第一行调用它；随后注册语言包、Definitions、view target 和页签；向视图注入 `hooks.cost`、生效价目表 `prices`、`loadOlder: () => session.loadOlder()` 和按会话的窗口模型记录 `windowModel: { current: null }`（D-08、V-08、V-12、V-16） |
 | `src/client/cost-contract.ts` | 类型（纯类型，同时列入宿主编译面） |
 | `src/client/cost-definition.ts` | `cost-step`、`cost-route` 两个 Definition |
 | `src/client/cost-builder.ts` | view target `cost` 的 builder：节点集合与模型归属 |
-| `src/client/cost-pricing.ts` | `BUILTIN_PRICES`、`pricePeriod`、`resolvePrices`、`priceSummary` |
+| `src/client/cost-pricing.ts` | `BUILTIN_PRICES`、`pricePeriod`、`resolvePrices`、`rememberWindowModel`、`priceSummary` |
 | `src/client/cost-format.ts` | `formatYuan`（BR-07）、`formatTokens`（k / M，与 stats 显示一致） |
 | `src/client/CostView.tsx`、`cost.module.css` | 合计卡、提示条、明细表（`<table>` 带 `<th scope="col">`，满足 NFR-03） |
 | `src/client/locales.ts`、`locale/*.json` | 8 种语言的界面文案（`locales.ts`，命名空间 `cost`）与包元数据（`locale/*.json`，只含 `meta.title`、`meta.description`） |
 | `src/css-modules.d.ts` | CSS module 类型声明（与 stats 相同） |
-| `README.md`、`README.zh.md`、`README.i18n.yaml` | 安装、配置、启动、验证（AC-14），并说明 D-04 的"未定价"含义、已知低估（R3）、R2 开始时间回退、节假日、旧模型 ID 与缓存写入单价 |
+| `README.md`、`README.zh.md`、`README.i18n.yaml` | 安装、配置、启动、验证（AC-14），并说明 D-04 的"未定价"含义、已知低估（R3）、R2 开始时间回退、节假日、旧模型 ID 与缓存写入单价。启动步骤为 `pnpm install` → `pnpm run build` → `pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml`，并说明拉取本包改动后需重新构建：`pnpm dsh web` 只提供已构建的浏览器产物（根 `README.md:36-41`），缺少构建时干净检出上页签不会出现（V-17，代码评审 P1-2）。"实现原理"说明窗口模型记录及窗口替换后重新记录（V-16、V-18） |
 | `tests/*.client.spec.ts(x)`、`tests/config.host.spec.ts` | 见任务 T7 |
 
 仓库登记（修改）：
@@ -178,12 +184,13 @@ flowchart LR
 
 | 风险与触发条件 | 影响 | 缓解措施 | 验证方式 |
 |---|---|---|---|
-| R1 窗口内有模型切换，且切换前的步骤在窗口最前面 | 这些步骤计为未定价，合计偏低 | D-04：计入 C-07 的计数，提示用户；加载更早后恢复。评审 P2-3 提出：窗口内第一条请求头的 `reason` 为 `series` 时可沿用同一模型，**已决定延后**；触发条件为用户反馈未定价步骤过多 | builder 单元测试；人工：切换模型后打开历史会话 |
+| R1 窗口内第一条 header 为 `resume` / `change`，且它之前的步骤没有有效的窗口模型记录 | 这些步骤计为未定价，合计偏低 | D-04：计入 C-07 的计数，提示用户；加载更早后恢复。方案评审 P2-3 的 `series` 沿用原定延后，因代码评审 P1-1 已实现（V-16）；窗口无 header 期间记录的模型在 header 实时到达后继续沿用（V-16），窗口被替换为更晚的页时丢弃记录、重新记录（V-18） | builder、pricing、视图单元测试（含 `series`、实时 header、窗口替换）；人工：切换模型后打开历史会话 |
 | R2 起点 `step/start` 不在窗口内 | 开始时间回退为消息时间，跨越时段边界的那一步可能用错价 | 只影响窗口第一步；README 说明 | 单元测试覆盖回退分支 |
 | R3 压缩摘要调用、失败重试尝试也消耗 token，但不是"步骤" | 估算偏低 | PRD 范围外；README 说明。如需计入，应回到 PRD 扩展 FR | — |
 | R4 官方调价 | 内置价过期 | `prices` 配置覆盖（FR-06）；R-01 要求实现前再次核对价格 | 实现前人工核对价目页 |
 | R5 多个 Definition 匹配同一事件（stats、trajectory 也匹配 `request/header`） | 无，已有先例 | — | 插件测试同时挂载 stats |
-| R6 假设"会话窗口是日志的连续后缀"（D-02 回退逻辑依赖它） | 假设不成立时，`lastUsed` 回退可能用错模型 | **已核实，风险关闭**（T3）：`packages/client/ui-conversation/src/client/conversation/assembler.ts` 中 `replaceWindow` 的参数为 "complete contiguous window"，`prepend` 只加入更早的事件，因此窗口总是会话日志的连续后缀；保留 `lastUsed` 回退 | 代码核对；builder 与插件测试（`prepend` 后模型和开始时间恢复） |
+| R6 假设"会话窗口是日志的连续后缀"（D-02 回退逻辑依赖它） | 假设不成立时，`lastUsed` 回退可能用错模型 | **已核实，风险关闭**（T3）：`packages/client/ui-conversation/src/client/conversation/assembler.ts` 中 `replaceWindow` 的参数为 "complete contiguous window"，`prepend` 只加入更早的事件，因此窗口总是会话日志的连续后缀；保留 `lastUsed` 回退。注意：连续后缀不等于"只增长"，`replaceWindow` 可以把窗口换成更晚的后缀，这一情况由 V-18 处理 | 代码核对；builder 与插件测试（`prepend` 后模型和开始时间恢复） |
+| R7 缺口修复补回的页不带投影基线，模型切换的 header 恰好落在缺失段内，且 `lastUsed` 的更新晚于窗口替换 | 替换后的窗口记下切换前的旧模型，此后保留首个模型，这些步骤按旧模型计价，且不显示未定价提示 | **暂不修复**：概率很低。打开与断线续传的页带投影基线，并在替换窗口前同步写入（`session.ts:782-783`），不会触发；只剩缺口修复页，且模型切换的投影帧通常先于缺口修复到达。该风险来自 V-16 ② 保留首个模型的规则，不是 V-18 引入的。待核实：缺口修复页（`journal-stream.ts` `repairPageRequest`）是否带 `projections`，或投影帧是否保证先于缺口修复到达；两者都不成立时，在 README 已知限制中补一句，或由负责人登记接受 | 代码评审复评二 §R2.4 探针 B 已在纯函数层复现；真实运行未复现 |
 
 ## 4. 兼容性考量
 
@@ -191,7 +198,7 @@ flowchart LR
 
 ## 5. 任务分解
 
-T1～T9 均已完成，各任务的实际变更、验证命令与结果见[实现报告](../dev/IMPLEMENTATION_REPORT.md#任务进度)。下表的变更文件已按实际实现同步。
+T1～T9 均已完成，各任务的实际变更、验证命令与结果见[实现报告](../dev/IMPLEMENTATION_REPORT.md#任务进度)。下表的变更文件已按实际实现同步。代码评审修复不另设任务：P1-1、P1-2 见 `b1c72c69dd`（V-16、V-17），P1-3 见 `16e208d159`（V-18），改动落在 T3（`cost-builder.ts`、`cost-definition.ts`）、T2（`cost-pricing.ts`、`cost-contract.ts`）、T5（`CostView.tsx`、`src/client/index.ts`）、T6（README）与 T7（测试）涉及的文件上。
 
 | 任务 | 关联模块/决策 | 变更文件（新增/修改/删除） | 前置依赖 | 交付物与验收条件 |
 |---|---|---|---|---|

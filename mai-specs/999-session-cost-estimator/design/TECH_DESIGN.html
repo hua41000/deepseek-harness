@@ -246,12 +246,15 @@
   participant D as Definitions
   participant B as CostSnapshotBuilder
   participant V as CostView
+  participant R as rememberWindowModel
   participant P as priceSummary
   S-&gt;&gt;D: step/start、assistant/message、request/header
   D-&gt;&gt;B: CostStep 节点 / CostRoute 节点
-  B-&gt;&gt;B: attributeModels：每步取 seq 更小的最近一条 route
+  B-&gt;&gt;B: attributeModels：每步取 seq 更小的最近一条 route；第一条为 series 时向前沿用
   B--&gt;&gt;V: CostSnapshot（steps + windowHasHeader）
-  V-&gt;&gt;P: snapshot、价目表、modelSelection.lastUsed
+  V-&gt;&gt;R: 本会话 windowModel.current、snapshot、modelSelection.lastUsed
+  R--&gt;&gt;V: WindowFallback { model, fromSeq } 或 null
+  V-&gt;&gt;P: snapshot、价目表、WindowFallback
   P--&gt;&gt;V: 合计、节省、模型、未定价步数、每轮行
   V-&gt;&gt;S: 点击“加载更早” → session.loadOlder()
   S--&gt;&gt;D: prepend 更早事件，重新走一遍</pre>
@@ -261,6 +264,8 @@
         <li>没有用量记录的步骤（取消、失败、进行中）不产生节点，既不计价，也不算作未定价。</li>
         <li><code>cost-step</code> 的状态只保存 <code>step/start</code> 的时间，用量直接取该步最后一条 <code>assistant/message</code>。起点不在窗口内时，开始时间回退为消息时间，只有窗口第一步可能受影响。</li>
         <li>会话窗口总是日志的连续后缀（<code>replaceWindow</code> 收完整连续窗口，<code>prepend</code> 只加更早事件），因此窗口内没有请求头时可以用 <code>lastUsed</code> 回退。</li>
+        <li>回退模型记在插件按会话注入的 <code>windowModel</code> 中（注入结果按会话缓存），切走页签或视图重新挂载都不会丢失；请求头实时进入窗口后，已计价的步骤仍按记录的模型计价，合计不会下降。</li>
+        <li>断线续传、缺口修复或重新打开会把窗口整体换成更晚的尾页，此时窗口起点后移，旧记录被丢弃并按新窗口重新记录。</li>
         <li>配置无效时宿主入口加载失败，但浏览器端代码仍会下发；页面拿不到全局配置时，浏览器端在任何注册之前报错，不回退到内置价，页签不会出现，DSH 其余部分照常运行。</li>
         <li>“加载更早”按钮直接调用 <code>session.loadOlder()</code>；视图用槽位标准属性 <code>useSession</code> 读取 <code>hasMore</code>、<code>loadingOlder</code> 与 <code>historyLoadStatus</code>。</li>
       </ul>
@@ -291,16 +296,19 @@
       <h2><span class="material-symbols-outlined" aria-hidden="true">rule</span>模型归属与取价</h2>
       <figure class="diagram" data-diagram>
         <div class="diagram-output" tabindex="0" hidden></div>
-        <figcaption>只有“窗口里有模型切换，且切换前的步骤排在窗口最前面”时才推不出模型；这类步骤计入未定价，加载更早轮次后自动恢复。</figcaption>
+        <figcaption>只有窗口第一条请求头为 resume / change、且它之前的步骤没有有效的窗口模型记录时才推不出模型；这类步骤计入未定价，加载更早轮次后自动恢复。</figcaption>
         <details>
           <summary>查看图源</summary>
           <pre data-mermaid>flowchart TD
   accTitle: 单步模型归属与计价分支
   A["一步（带用量）"] --&gt; B{"窗口内在它之前&lt;br/&gt;有 request/header？"}
   B -- 有 --&gt; M["模型 = 最近一条请求头的模型"]
-  B -- 没有 --&gt; C{"窗口内有任何&lt;br/&gt;request/header？"}
-  C -- 没有 --&gt; L["模型 = modelSelection.lastUsed"]
-  C -- 有 --&gt; U["模型未知 → 未定价"]
+  B -- 没有 --&gt; C{"窗口第一条请求头&lt;br/&gt;是 series？"}
+  C -- 是 --&gt; M2["模型 = 该 series 头的模型&lt;br/&gt;（series 只在与上一条相同时写入）"]
+  C -- 否或无请求头 --&gt; W{"有窗口模型记录&lt;br/&gt;且 messageSeq ≥ fromSeq？"}
+  W -- 有 --&gt; L["模型 = 记录的模型&lt;br/&gt;（无请求头时看到的 lastUsed）"]
+  W -- 没有 --&gt; U["模型未知 → 未定价"]
+  M2 --&gt; R
   M --&gt; R{"配置或内置表&lt;br/&gt;有该模型？"}
   L --&gt; R
   R -- 否 --&gt; U
@@ -308,7 +316,28 @@
   T --&gt; X["花费 = Σ token × 单价 ÷ 10⁶&lt;br/&gt;节省 = 命中 × (未命中价 − 命中价) ÷ 10⁶"]</pre>
         </details>
       </figure>
+      <figure class="diagram" data-diagram>
+        <div class="diagram-output" tabindex="0" hidden></div>
+        <figcaption>窗口模型记录随窗口变化：无请求头时记下 lastUsed 与起点，加载更早时起点前移，出现请求头后冻结，窗口被替换为更晚的页时丢弃重记。</figcaption>
+        <details>
+          <summary>查看图源</summary>
+          <pre data-mermaid>stateDiagram-v2
+  accTitle: 窗口模型记录的状态变化
+  state "无记录" as Empty
+  state "已记录" as Recorded
+  state "冻结" as Frozen
+  [*] --&gt; Empty
+  Empty --&gt; Recorded: 窗口无请求头且 lastUsed 已知，记下 lastUsed 与第一步 seq
+  Recorded --&gt; Recorded: 加载更早的无请求头页，fromSeq 前移，模型不变
+  Recorded --&gt; Frozen: 请求头进入窗口
+  Frozen --&gt; Empty: 窗口被替换为起点更晚的页
+  Recorded --&gt; Empty: 窗口被替换为起点更晚的页
+  Empty --&gt; Empty: 窗口有请求头，保持为空</pre>
+        </details>
+      </figure>
       <ul>
+        <li>保留首个模型：<code>lastUsed</code> 只因新的请求头而改变，窗口仍无请求头时它变化，说明那条请求头还没进入窗口。</li>
+        <li>已知残余风险（暂不修复）：缺口修复补回的页不带模型投影、模型切换恰好落在缺失段、且 <code>lastUsed</code> 晚于窗口更新时，记录会保留切换前的模型，这些步骤按旧模型计价且不提示。打开会话与断线续传的页会先写入投影，不受影响。</li>
         <li>高峰：北京时间周一至周五 [09:00, 12:00) 与 [14:00, 18:00)，其余为空闲。按 UTC+8 偏移计算，与浏览器时区无关；不识别节假日。</li>
         <li>配置按模型整条提供（两个时段 × 三个单价），整条替换内置价；缓存写入 token 按未命中单价计价。</li>
       </ul>
@@ -365,22 +394,27 @@
   class AttributedCostStep {
     +string model
   }
+  class WindowFallback {
+    +string model
+    +number fromSeq
+  }
   CostStep &lt;|-- AttributedCostStep
   CostSnapshot "1" o-- "*" AttributedCostStep
   ModelPrices *-- UnitPrices
-  CostSummary "1" o-- "*" CostTurnRow</pre>
+  CostSummary "1" o-- "*" CostTurnRow
+  WindowFallback ..&gt; CostSnapshot : 只作用于 fromSeq 之后的未归属步骤</pre>
         </details>
       </figure>
       <div class="table-scroll">
         <table>
           <thead><tr><th scope="col">模块</th><th scope="col">职责</th></tr></thead>
           <tbody>
-            <tr><td><code>cost-definition.ts</code></td><td>两个 Definition：<code>cost-step</code>（状态为 step/start 时间，用量取最后一条 assistant/message）与 <code>cost-route</code>（每条 request/header 一个节点）</td></tr>
+            <tr><td><code>cost-definition.ts</code></td><td>两个 Definition：<code>cost-step</code>（状态为 step/start 时间，用量取最后一条 assistant/message）与 <code>cost-route</code>（每条 request/header 一个节点，带 seq、model、reason）</td></tr>
             <tr><td><code>cost-builder.ts</code></td><td>维护节点集合，<code>attributeModels()</code> 按 seq 为每步确定模型；声明 <code>ConversationViewSnapshotMap</code> 合并 <code>cost: CostSnapshot</code></td></tr>
-            <tr><td><code>cost-pricing.ts</code></td><td><code>BUILTIN_PRICES</code>、<code>pricePeriod</code>、<code>resolvePrices</code>、<code>priceStep</code>、<code>priceSummary</code></td></tr>
+            <tr><td><code>cost-pricing.ts</code></td><td><code>BUILTIN_PRICES</code>、<code>pricePeriod</code>、<code>resolvePrices</code>、<code>priceStep</code>、<code>rememberWindowModel</code>、<code>priceSummary</code></td></tr>
             <tr><td><code>cost-format.ts</code></td><td>人民币金额格式、token 的 k / M 缩写</td></tr>
             <tr><td><code>CostView.tsx</code></td><td>合计卡、部分加载提示、每轮明细表、空状态与全部未定价状态；会话状态经 <code>useSession</code> 读取</td></tr>
-            <tr><td><code>src/client/index.ts</code></td><td><code>injectedPrices()</code> 读取并校验页面全局配置；注册语言包、Definitions、view target 与页签，注入 <code>hooks.cost</code>、<code>prices</code>、<code>loadOlder</code></td></tr>
+            <tr><td><code>src/client/index.ts</code></td><td><code>injectedPrices()</code> 读取并校验页面全局配置；注册语言包、Definitions、view target 与页签，注入 <code>hooks.cost</code>、<code>prices</code>、<code>loadOlder</code> 与按会话的 <code>windowModel</code></td></tr>
             <tr><td><code>src/index.ts</code> / <code>src/config.ts</code></td><td>宿主入口：校验 <code>prices</code>（含 NaN 检查），以常量 <code>CONFIG_GLOBAL</code> 为名通过 <code>webserver/index-inject</code> 写入页面</td></tr>
           </tbody>
         </table>
@@ -395,7 +429,7 @@
 +   tsconfig.host.json               # 宿主面：src/index.ts · src/config.ts · src/client/cost-contract.ts
 +   tsconfig.client.json             # 浏览器面：src/client · src/config.ts · src/css-modules.d.ts
 +   tsdown.config.ts
-+   README.md · README.zh.md · README.i18n.yaml   # 安装、配置、启动、验证、已知限制
++   README.md · README.zh.md · README.i18n.yaml   # 启动：pnpm install → pnpm run build → pnpm dsh web --patch …；配置、验证、已知限制
 +   locale/{zh,en,ja,de,es,fr,pt,ru}.json         # 包元数据
 +   src/index.ts · src/config.ts                   # 宿主入口、配置 schema、CONFIG_GLOBAL
 +   src/css-modules.d.ts
@@ -419,7 +453,7 @@
       <h2><span class="material-symbols-outlined" aria-hidden="true">code</span>核心代码</h2>
       <h3><span class="tag">现有实现（摘录）</span><code>cost-builder.ts</code> · <code>attributeModels</code></h3>
       <pre tabindex="0"><code class="language-ts">export function attributeModels(nodes: Iterable&lt;CostViewNode&gt;): CostSnapshot {
-  const routes: { seq: number; model: string }[] = []
+  const routes: { seq: number; model: string; reason: RequestHeaderReason }[] = []
   const steps: CostStep[] = []
   for (const node of nodes) {
     switch (node.data.kind) {
@@ -430,11 +464,14 @@
   }
   routes.sort((a, b) =&gt; a.seq - b.seq)
   steps.sort((a, b) =&gt; a.messageSeq - b.messageSeq)
-  let cursor = -1
-  const attributed = steps.map((step) =&gt; {
+  // series 只在与上一条请求头相同时写入，所以第一条为 series 时，它之前的步骤沿用其模型
+  const leading = routes[0]
+  let model: string | null = leading?.reason === 'series' ? leading.model : null
+  let next = 0
+  const attributed = steps.map((step): AttributedCostStep =&gt; {
     // 请求头在同一步内先于 assistant/message 写入，用严格小于
-    while (cursor + 1 &lt; routes.length &amp;&amp; routes[cursor + 1]!.seq &lt; step.messageSeq) cursor++
-    return { ...step, model: cursor &gt;= 0 ? routes[cursor]!.model : null }
+    for (let route = routes[next]; route !== undefined &amp;&amp; route.seq &lt; step.messageSeq; route = routes[++next]) model = route.model
+    return { ...step, model }
   })
   return { steps: attributed, windowHasHeader: routes.length &gt; 0 }
 }</code></pre>
@@ -461,15 +498,26 @@ export function priceStep(step: CostStep, model: string | null, table: PriceTabl
   return { cost, savings }
 }</code></pre>
 
+      <h3><span class="tag">现有实现（摘录）</span><code>cost-pricing.ts</code> · 窗口模型记录</h3>
+      <pre tabindex="0"><code class="language-ts">export function rememberWindowModel(previous: WindowFallback | null, snapshot: CostSnapshot, lastUsed: string | null): WindowFallback | null {
+  const first = snapshot.steps[0]
+  if (first === undefined) return previous
+  // 加载更早只让起点前移，实时追加不改变起点；起点后移说明窗口被替换为更晚的页
+  const kept = previous !== null &amp;&amp; first.messageSeq &gt; previous.fromSeq ? null : previous
+  if (snapshot.windowHasHeader) return kept                 // 有请求头：记录冻结
+  if (kept === null) return lastUsed === null ? null : { model: lastUsed, fromSeq: first.messageSeq }
+  // 保留首个模型，起点随更早的页前移
+  return first.messageSeq &lt; kept.fromSeq ? { model: kept.model, fromSeq: first.messageSeq } : kept
+}</code></pre>
+
       <h3><span class="tag">现有实现（摘录）</span><code>cost-pricing.ts</code> · 汇总</h3>
-      <pre tabindex="0"><code class="language-ts">export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallbackModel: string | null): CostSummary {
-  // 只有窗口内没有任何请求头时，lastUsed 才能代表整个窗口的模型
-  const fallback = snapshot.windowHasHeader ? null : fallbackModel
+      <pre tabindex="0"><code class="language-ts">export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback: WindowFallback | null): CostSummary {
   const turns = new Map&lt;number, { input: number; output: number; cost: number; priced: number; unpriced: number }&gt;()
   const models = new Set&lt;string&gt;()
   let total = 0, savings = 0, pricedSteps = 0, unpricedSteps = 0
   for (const step of snapshot.steps) {
-    const model = step.model ?? fallback
+    // 记录只用于 fromSeq 之后的未归属步骤，其余 null 计入未定价
+    const model = step.model ?? (fallback !== null &amp;&amp; step.messageSeq &gt;= fallback.fromSeq ? fallback.model : null)
     if (model !== null) models.add(model)
     const row = turns.get(step.turn) ?? { input: 0, output: 0, cost: 0, priced: 0, unpriced: 0 }
     row.input += step.miss + step.hit + step.write
@@ -530,7 +578,7 @@ export function injectedPrices(injected: Partial&lt;Config&gt; | undefined): Pri
 }</code></pre>
 
       <h3><span class="tag">现有实现（摘录）</span><code>CostView.tsx</code> · 会话状态与加载更早</h3>
-      <pre tabindex="0"><code class="language-ts">const { useCost, useSession, useProjection, prices, loadOlder, t } = props
+      <pre tabindex="0"><code class="language-ts">const { useCost, useSession, useProjection, prices, loadOlder, windowModel, t } = props
 const snapshot = useCost(value =&gt; value)
 const lastUsed = useProjection('modelSelection', value =&gt; value?.lastUsed?.model ?? null)
 const hasMore = useSession(session =&gt; session.hasMore)
@@ -538,7 +586,11 @@ const loadingOlder = useSession(session =&gt; session.loadingOlder)
 // 部分失败时 loadOlder() 不抛错，而是把 historyLoadStatus 置为 'error'
 const historyFailed = useSession(session =&gt; session.historyLoadStatus === 'error')
 const [rejected, setRejected] = useState(false)
-const summary = useMemo(() =&gt; priceSummary(snapshot, prices, lastUsed), [snapshot, prices, lastUsed])
+const summary = useMemo(() =&gt; {
+  // 记录须与本次计价的快照同步；对相同输入幂等，重复渲染结果不变
+  windowModel.current = rememberWindowModel(windowModel.current, snapshot, lastUsed)
+  return priceSummary(snapshot, prices, windowModel.current)
+}, [windowModel, snapshot, prices, lastUsed])
 const requestOlder = (): void =&gt; {
   setRejected(false)
   loadOlder().catch((error: unknown) =&gt; {
@@ -570,7 +622,7 @@ const older = !hasMore ? null : (
 
     <section id="summary">
       <h2><span class="material-symbols-outlined" aria-hidden="true">summarize</span>方案小结</h2>
-      <p>本次新增一个独立的浏览器端实验插件，不改动现有事件、投影和服务：通过“每步取前一条请求头的模型”从已有日志中推出模型，计价规则集中在可单测的纯函数中。主要取舍是接受窗口最前段偶尔推不出模型（计入未定价，加载更早后恢复），以此避免修改核心事件格式和两套 SDK 快照。压缩摘要调用和失败重试消耗的 token 不在本次统计范围内，估算可能偏低。实现中补充了 NaN 校验、宿主与浏览器两个编译面，以及空状态下仍可加载更早轮次；真实对话记录的模型 ID 与内置价目表一致，DeepSeek 当前报告的缓存写入量为 0。</p>
+      <p>本次新增一个独立的浏览器端实验插件，不改动现有事件、投影和服务：通过“每步取前一条请求头的模型”从已有日志中推出模型，计价规则集中在可单测的纯函数中。主要取舍是接受窗口最前段偶尔推不出模型（计入未定价，加载更早后恢复），以此避免修改核心事件格式和两套 SDK 快照；为缩小这一范围，series 请求头向前沿用其模型，视图按会话记住无请求头时的模型，窗口被整体替换时丢弃重记，实时更新时合计不会下降。压缩摘要调用和失败重试消耗的 token 不在本次统计范围内，估算可能偏低。实现中补充了 NaN 校验、宿主与浏览器两个编译面，以及空状态下仍可加载更早轮次；真实对话记录的模型 ID 与内置价目表一致，DeepSeek 当前报告的缓存写入量为 0。</p>
     </section>
   </main>
   <script type="module">

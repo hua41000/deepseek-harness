@@ -2,7 +2,7 @@
 
 [返回技术方案](TECH_DESIGN.md)
 
-> 状态：已按实现同步（2026-11-14，代码基线 `a9f6f7694f`）。依据[实现报告](../dev/IMPLEMENTATION_REPORT.md)的偏差 V-05～V-08、V-10、V-12、V-13 和 T3、T4、T6、T8 的核实结论。
+> 状态：已按实现同步（2026-11-15，代码基线 `666b34933e`）。依据[实现报告](../dev/IMPLEMENTATION_REPORT.md)的偏差 V-05～V-08、V-10、V-12、V-13、V-16、V-18 和 T3、T4、T6、T8 的核实结论，以及[代码评审](../review/code_review.md)复评二（§R2）。
 >
 > 以下片段是**供评审的摘录与示意**，不是源码副本：已按实际实现改写关键类型与逻辑，省略了 import、JSDoc、lint 所需的写法调整和 React 样板，省略处已标明。实现与测试结果以 `packages/experimental/client-ui-cost/` 的源码和实现报告为准。
 
@@ -32,11 +32,22 @@ export interface AttributedCostStep extends CostStep {
   readonly model: string | null
 }
 
+/** 视图按会话记录的窗口模型（V-16）：只用于 messageSeq >= fromSeq 且模型为 null 的步骤。 */
+export interface WindowFallback {
+  readonly model: string     // 窗口没有 header 时看到的 modelSelection.lastUsed.model
+  readonly fromSeq: number   // 该模型覆盖的最早步骤的 messageSeq
+}
+
 /** builder 输出。 */
 export interface CostSnapshot {
   readonly steps: readonly AttributedCostStep[]   // 按 messageSeq 排序
   readonly windowHasHeader: boolean
 }
+
+// cost-definition.ts 中的节点数据（V-16：route 带上 header 的 reason）
+type CostViewNodeData =
+  | { readonly kind: 'step'; readonly step: CostStep }
+  | { readonly kind: 'route'; readonly seq: number; readonly model: string; readonly reason: RequestHeaderReason }
 
 export interface CostTurnRow {
   readonly turn: number
@@ -63,6 +74,7 @@ export interface CostSummary {
 - 没有引入 `Branded` 类型。`model` 是 LLM 路由 ID，仓库中的 `LlmCallConfig.model` 本身就是 `string`。
 - `AttributedCostStep` 是具名接口，测试与 builder 都直接构造它（V-05）。
 - `CostTurnRow.unpricedSteps` 与 `partial` 同时存在：`partial` 决定是否显示标记，`unpricedSteps` 提供标记 `title` / `aria-label` 中 C-07 的计数（V-10）。
+- `WindowFallback` 不进入 builder 输出：builder 拿不到投影，记录由视图维护（§3、§5）。`reason` 的类型直接引用核心的 `RequestHeaderReason`，测试夹具因此只能使用真实取值。
 
 ## 2. 模型归属（`cost-builder.ts`）
 
@@ -94,15 +106,18 @@ export const costStepDefinition: ConversationNodeDefinition<number> = {
 }
 
 // cost-route：match request/header → { id: `${event.seq}`, role: 'start' }；
-// start 保存 { seq, model: header.config.model }，buildViewNode 产出 { kind: 'route', seq, model }。
+// start 保存 { seq, model: header.config.model, reason: data.reason }，buildViewNode 产出 { kind: 'route', seq, model, reason }。
 ```
 
 决定正确性的代码在 builder 中：
 
 ```ts
-/** 为每步确定模型：取该步 assistant/message 之前最近一条 request/header。 */
+/**
+ * 为每步确定模型：取该步 assistant/message 之前最近一条 request/header。
+ * 会话只在 header 与上一条相同时写入 series，所以第一条 header 为 series 时，它之前的步骤沿用它的模型（V-16 ①）。
+ */
 export function attributeModels(nodes: Iterable<CostViewNode>): CostSnapshot {
-  const routes: { seq: number; model: string }[] = []
+  const routes: { seq: number; model: string; reason: RequestHeaderReason }[] = []
   const steps: CostStep[] = []
   for (const node of nodes) {
     switch (node.data.kind) {
@@ -113,17 +128,19 @@ export function attributeModels(nodes: Iterable<CostViewNode>): CostSnapshot {
   }
   routes.sort((a, b) => a.seq - b.seq)
   steps.sort((a, b) => a.messageSeq - b.messageSeq)
-  let cursor = -1
-  const attributed = steps.map((step) => {
-    // 两个序列都已按 seq 递增排序，用单指针推进，整体 O(n log n)。
-    while (cursor + 1 < routes.length && routes[cursor + 1]!.seq < step.messageSeq) cursor++
-    return { ...step, model: cursor >= 0 ? routes[cursor]!.model : null }
+  // 两个序列都已按 seq 递增排序，用单指针推进，整体 O(n log n)。
+  const leading = routes[0]
+  let model: string | null = leading?.reason === 'series' ? leading.model : null   // 只看第一条；resume / change 不沿用
+  let next = 0
+  const attributed = steps.map((step): AttributedCostStep => {
+    for (let route = routes[next]; route !== undefined && route.seq < step.messageSeq; route = routes[++next]) model = route.model
+    return { ...step, model }
   })
   return { steps: attributed, windowHasHeader: routes.length > 0 }
 }
 ```
 
-builder 沿用 `StatsSnapshotBuilder` 的 `replace` / `apply` 接口：维护 `Map<key, node>`，每次变化后调用 `attributeModels(map.values())`。只沿用接口，不复制代码；`pnpm run duplication` 为 0 处克隆。实际实现中两个指针访问去掉了非空断言（lint 规则 `no-non-null-assertion`），封闭联合的 `default` 分支调用 `assertNever`。
+builder 沿用 `StatsSnapshotBuilder` 的 `replace` / `apply` 接口：维护 `Map<key, node>`，每次变化后调用 `attributeModels(map.values())`。只沿用接口，不复制代码；`pnpm run duplication` 为 0 处克隆。指针遍历不使用非空断言（lint 规则 `no-non-null-assertion`），封闭联合的 `default` 分支调用 `assertNever`。
 
 `cost-builder.ts` 另外声明类型合并，使 `ctx.uiConversation.binding(id).target('cost')` 能取得 `CostSnapshot`（TECH_DESIGN §2.1.3，V-11）：
 
@@ -138,6 +155,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 审查点：
 
 - **为什么用 `<` 而不是 `≤`**：`request/header` 在同一步内先于 `assistant/message` 写入，两者 seq 不会相等。
+- **`series` 推断的依据**：`packages/core/agent-loop/src/agent.ts:695-696` 只在 `headerEquals(baseline, header)` 为真时写入 `series`，所以它与上一条 header 相同；`resume`（`:681-688`）与 `change`（`:689-694`）可能换了模型，不沿用。只取窗口内**第一条** header，之后的 header 照常逐条切换（`cost-builder.client.spec.ts` 两条用例）。
 - **不变量**：同一 seq 前缀下，结果只取决于节点集合，与 `prepend` 或 `apply` 的顺序无关，所以分页和实时更新不会造成错配。T3 用打乱顺序的输入、T5 用真实 `ConversationNodeAssembler` 的 `prepend` 验证。
 - **R6 已核实**（T3）：`ui-conversation` 的 `replaceWindow` 参数为 "complete contiguous window"，`prepend` 只加入更早的事件，窗口总是日志的连续后缀；视图层的 `lastUsed` 回退保留。
 
@@ -177,16 +195,32 @@ export function priceStep(step: CostStep, model: string | null, table: PriceTabl
 }
 
 /**
- * 汇总一个快照（在 CostView 的 useMemo 中调用）。
- * @param fallbackModel - modelSelection.lastUsed?.model；仅当窗口内没有任何 request/header 时使用。
+ * 更新本会话的窗口模型记录（V-16 ②、V-18）。在 CostView 的 useMemo 中、priceSummary 之前调用。
+ * @param previous - 同一会话已有的记录，或 null。
+ * @param snapshot - 当前窗口。
+ * @param lastUsed - modelSelection.lastUsed?.model，投影尚未加载时为 null。
  */
-export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallbackModel: string | null): CostSummary {
-  const fallback = snapshot.windowHasHeader ? null : fallbackModel   // D-02 / D-04
+export function rememberWindowModel(previous: WindowFallback | null, snapshot: CostSnapshot, lastUsed: string | null): WindowFallback | null {
+  const first = snapshot.steps[0]
+  if (first === undefined) return previous                         // 空窗口：保留记录
+  // 加载更早只让起点前移，实时追加不改变起点；起点后移只能是窗口被替换为更晚的页（V-18）
+  const kept = previous !== null && first.messageSeq > previous.fromSeq ? null : previous
+  if (snapshot.windowHasHeader) return kept                        // 有 header：记录冻结（或保持 null）
+  if (kept === null) return lastUsed === null ? null : { model: lastUsed, fromSeq: first.messageSeq }
+  // 已有记录：保留首个模型（lastUsed 只因新 header 改变，窗口仍无 header 说明该 header 未到）；起点随更早的页前移
+  return first.messageSeq < kept.fromSeq ? { model: kept.model, fromSeq: first.messageSeq } : kept
+}
+
+/**
+ * 汇总一个快照（在 CostView 的 useMemo 中调用）。
+ * @param fallback - rememberWindowModel 的结果；只用于 messageSeq >= fromSeq 且模型为 null 的步骤，null 表示没有记录。
+ */
+export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback: WindowFallback | null): CostSummary {
   const turns = new Map<number, { input: number; output: number; cost: number; priced: number; unpriced: number }>()
   const models = new Set<string>()
   let total = 0, savings = 0, pricedSteps = 0, unpricedSteps = 0
   for (const step of snapshot.steps) {
-    const model = step.model ?? fallback
+    const model = step.model ?? (fallback !== null && step.messageSeq >= fallback.fromSeq ? fallback.model : null)   // 其余 null 按 D-04 未定价
     if (model !== null) models.add(model)
     const row = turns.get(step.turn) ?? { input: 0, output: 0, cost: 0, priced: 0, unpriced: 0 }
     row.input += step.miss + step.hit + step.write
@@ -218,6 +252,21 @@ export function priceSummary(snapshot: CostSnapshot, table: PriceTable, fallback
 
 - 实际实现中 `pricePeriod` 用区间表 `PEAK_MINUTES` 判断时段，`priceStep` 去掉了非空断言；行为与上面的示意相同，AC-02～AC-07、AC-12 由 `tests/cost-pricing.client.spec.ts`、`tests/cost-format.client.spec.ts` 覆盖（实现报告 T2）。
 - 模型列表包含未定价但模型已知的模型，PRD C-04 未区分这两种情况。
+- `rememberWindowModel` 各情况的结果（实现报告 V-16、V-18；代码评审复评二 §R2.3 逐项推演）：
+
+  | 窗口变化 | 记录 | 计价结果 |
+  |---|---|---|
+  | 首次打开，无 header，`lastUsed` 已知 | `{ lastUsed, 第一步 seq }` | 全部按 `lastUsed` |
+  | 首次打开，`lastUsed` 尚未加载 | null；之后 `lastUsed` 到达且窗口仍无 header 时再记录 | 暂为未定价 |
+  | 加载更早的无 header 页 | 模型不变，`fromSeq` 前移 | 新加载的步骤同样计价 |
+  | header 实时进入窗口 | 不变（冻结） | header 之前的步骤仍按记录计价，合计不下降（AC-10，代码评审 P1-1） |
+  | 窗口被替换为更晚的无 header 页 | 丢弃后按当前 `lastUsed` 重新记录 | 按替换时的模型计价（代码评审 P1-3） |
+  | 窗口被替换为更晚的含 header 页 | null | 第一条 header 之前的步骤未定价（D-04），加载更早可消除 |
+  | 窗口被替换为起点相同或更早的页 | 按"加载更早"处理 | 正确：若记录之后切换过模型，其 header 必然落在新窗口内 |
+  | 窗口暂无步骤 | 保留 | 不影响计价 |
+
+- 已知残余风险（TECH_DESIGN R7，暂不修复）：替换页不带投影基线、且 `lastUsed` 的更新晚于窗口替换时，"保留首个模型"会把旧模型留在记录里。纯函数层已由代码评审探针复现；只有缺口修复页可能触发。
+- 测试：`cost-pricing.client.spec.ts`（记录各情况、实时 header 后合计单调增加、窗口替换）、`cost-view.client.spec.tsx`（实时到达、重新挂载、窗口替换，`modelSelection` 投影用可更新的 store）、`cost-plugin.client.spec.ts`（在真实装配引擎中追加 `resume` header）。
 - 金额用 `number` 累加。单步误差在 1e-15 量级，远低于 BR-07 的显示精度，不引入十进制库。
 
 ## 4. 配置与宿主入口（`config.ts`、`index.ts`）
@@ -306,7 +355,7 @@ export function apply(ctx: Context): void {
 
 只列出与正确性相关的部分；JSX 样板和样式省略。
 
-注入对象只含 `hooks.cost`、`prices`、`loadOlder`（`src/client/index.ts`）。会话状态不另行注入：`conversation.view` 是 session 作用域槽位，视图直接用 ui-session 提供的槽位标准属性 `useSession` 读取（V-12）。
+注入对象只含 `hooks.cost`、`prices`、`loadOlder`、`windowModel`（`src/client/index.ts`）。`windowModel` 是可变的 `{ current: WindowFallback | null }`，槽位的 inject 结果按 entry × 会话 binding 缓存（`packages/client/ui-renderer/src/client/scoped-slots.tsx:161-168`），因此记录按会话保存，切走页签再回来、视图重新挂载都不会丢失（V-16 ④）。会话状态不另行注入：`conversation.view` 是 session 作用域槽位，视图直接用 ui-session 提供的槽位标准属性 `useSession` 读取（V-12）。
 
 ```tsx
 // src/client/index.ts 中 conversation.view 条目的 inject（id: 'cost'，order: 45）
@@ -318,11 +367,12 @@ inject: (sessionId: SessionId): CostViewInjected => {
     hooks: { cost: { getSnapshot: () => target.getSnapshot() ?? EMPTY_COST_SNAPSHOT, subscribe: l => target.subscribe(l) } },
     prices,
     loadOlder: () => session.loadOlder(),
+    windowModel: { current: null },   // V-16：按会话的窗口模型记录
   }
 }
 
 // CostView.tsx
-const { useCost, useSession, useProjection, prices, loadOlder, t } = props
+const { useCost, useSession, useProjection, prices, loadOlder, windowModel, t } = props
 const snapshot = useCost(value => value)
 const lastUsed = useProjection('modelSelection', value => value?.lastUsed?.model ?? null)
 const hasMore = useSession(session => session.hasMore)
@@ -330,7 +380,11 @@ const loadingOlder = useSession(session => session.loadingOlder)
 // 会话的 loadOlder() 在部分失败场景下不抛错，而是把 historyLoadStatus 置为 'error'
 const historyFailed = useSession(session => session.historyLoadStatus === 'error')
 const [rejected, setRejected] = useState(false)
-const summary = useMemo(() => priceSummary(snapshot, prices, lastUsed), [snapshot, prices, lastUsed])
+const summary = useMemo(() => {
+  // 对相同输入结果相同：严格模式重复执行会写入同一条记录
+  windowModel.current = rememberWindowModel(windowModel.current, snapshot, lastUsed)
+  return priceSummary(snapshot, prices, windowModel.current)
+}, [windowModel, snapshot, prices, lastUsed])
 const requestOlder = (): void => {
   setRejected(false)
   // loadOlder() 在请求进行中时返回同一个完成结果，重复点击不会发出第二个请求
@@ -368,4 +422,5 @@ export function formatYuan(value: number): string {
 
 - `0.99995 ≤ value < 1` 时按 4 位四舍五入会得到 `1.0000`，因此改按 2 位显示为 `¥1.00`。这是对 BR-07"< ¥1 保留 4 位"的边界解释，已在评审 P2-2 中被负责人接受（2026-11-11），并已回写 PRD 的 BR-07 与 AC-12（含 0.99995 和 0.99994 两个样例）。
 - `toFixed` 对 `x.xx5` 这类二进制表示的值可能向下舍入，AC-12 的样例不受影响（T2 单元测试：12.3456、0.03164、0.00004、0.99995、0.99994）。
+- 在 `useMemo` 中写入 `windowModel.current` 是有意的：记录必须与本次计价使用的快照同步更新，放到 effect 中会让本次渲染用旧记录计价。函数对相同输入幂等，重复渲染不改变结果（代码评审复评已核对）。
 - 视图分支由 `tests/cost-view.client.spec.tsx` 覆盖：空状态、全部未定价、部分未定价标记、C-08 计数、加载中、`loadOlder` 被拒绝与 `historyLoadStatus === 'error'` 时的 C-13；V-13 的空状态加按钮组合同样由单元测试覆盖，T8 真实运行中未观察到空状态（实现报告 T8-1b）。
