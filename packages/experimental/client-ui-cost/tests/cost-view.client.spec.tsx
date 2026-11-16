@@ -35,6 +35,11 @@ interface Mounted {
   readonly cost: ReturnType<typeof createSnapshotStore<CostSnapshot>>
   readonly session: ReturnType<typeof createSnapshotStore<SessionState>>
   readonly loadOlder: ReturnType<typeof vi.fn<() => Promise<void>>>
+  readonly projection: ReturnType<typeof createSnapshotStore<ModelProjection>>
+}
+
+interface ModelProjection {
+  readonly lastUsed: { readonly provider: string; readonly model: string } | null
 }
 
 /** Render the View with every prop it consumes. */
@@ -50,8 +55,9 @@ function mount(
   const cost = createSnapshotStore<CostSnapshot>(snapshot)
   const session = createSnapshotStore<SessionState>({ hasMore: false, loadingOlder: false, historyLoadStatus: 'idle', ...options.session })
   const loadOlder = vi.fn(async () => undefined)
-  const projection = { lastUsed: options.lastUsed === undefined ? null : { provider: 'deepseek', model: options.lastUsed } }
-  const useProjection = (_key: string, select: (value: typeof projection) => unknown): unknown => select(projection)
+  const projection = createSnapshotStore<ModelProjection>({ lastUsed: options.lastUsed === undefined ? null : { provider: 'deepseek', model: options.lastUsed } })
+  const useModelSelection = bindSnapshotSelector(projection)
+  const useProjection = (_key: string, select: (value: ModelProjection) => unknown): unknown => useModelSelection(select)
   render(createElement(CostView, {
     useCost: bindSnapshotSelector(cost),
     useSession: bindSnapshotSelector(session),
@@ -61,7 +67,7 @@ function mount(
     windowModel: options.windowModel ?? { current: null },
     t: options.translate ?? t,
   } as never))
-  return { cost, session, loadOlder }
+  return { cost, session, loadOlder, projection }
 }
 
 function card(): HTMLElement {
@@ -151,6 +157,26 @@ describe('cost view', () => {
     mount({ steps: [step(1, null, 100), step(2, 'deepseek-v4-pro', 400)], windowHasHeader: true }, { lastUsed: 'deepseek-v4-pro', windowModel })
     expect(within(screen.getByRole('table')).getByText('¥0.0316')).toBeTruthy()
     expect(within(card()).getByText('deepseek-flash、deepseek-v4-pro')).toBeTruthy()
+  })
+
+  it('prices a replacing later window on the last used model at that time', () => {
+    const mounted = mount({ steps: [step(1, null, 100)], windowHasHeader: false }, { lastUsed: 'deepseek-flash' })
+    expect(within(card()).getByText('¥0.0316')).toBeTruthy()
+    // A reconnect replaces the window with a later page that no longer holds the model change header.
+    act(() => {
+      mounted.projection.set({ lastUsed: { provider: 'deepseek', model: 'deepseek-v4-pro' } })
+      mounted.cost.set({ steps: [step(5, null, 500)], windowHasHeader: false })
+    })
+    expect(within(card()).getByText('¥0.1440')).toBeTruthy()
+    expect(within(card()).getByText('deepseek-v4-pro')).toBeTruthy()
+    expect(within(card()).queryByText(/未定价/)).toBeNull()
+  })
+
+  it('leaves steps before the first header of a replacing window unpriced', () => {
+    const mounted = mount({ steps: [step(1, null, 100)], windowHasHeader: false }, { lastUsed: 'deepseek-flash' })
+    act(() => { mounted.cost.set({ steps: [step(5, null, 500), step(6, 'deepseek-v4-pro', 600)], windowHasHeader: true }) })
+    expect(within(card()).getByText('¥0.1440')).toBeTruthy()
+    expect(within(card()).getByText(/未定价/)).toBeTruthy()
   })
 
   it('updates the amounts when a new step arrives', () => {

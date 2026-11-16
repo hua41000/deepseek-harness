@@ -20,6 +20,7 @@
 | T8 人工验收 | 完成（2026-11-13～14） | — | 逐项结果见下文；T8-1b 空状态未在真实运行中观察到，由单元测试覆盖 |
 | T9 核实 Q-02、Q-05 | 完成 | `abd5a82cc8` | 见下文 "T9 核实 Q-02、Q-05"；PRD 已回写（`79f0875a6b`） |
 | 评审修复 P1-1、P1-2 | 完成 | `b1c72c69dd` | 见下文"代码评审修复"；按[代码评审](../review/code_review.md)方案 A 修复 P1-1，并修复 P1-2；待复评 |
+| 评审修复 P1-3 | 完成（未提交） | — | 见下文"代码评审修复（P1-3）"；按[代码评审](../review/code_review.md) §0.4 的最小修复方案；待复评 |
 
 ## 与设计的偏差
 
@@ -42,6 +43,7 @@
 | V-15 | T6 只列出 README 三件套与 `docs/config-catalog*.md`（TECH_DESIGN T6；§2.3.1 提到 client catalog "如覆盖实验包则一并生成"） | 另外登记与生成：`scripts/verify-package-readme-model-experience.ts` 的 `SENTENCE_MODEL_EXPERIENCE` 新增本包（README 使用简短的 "None, as …" 形式时必须登记）；重新生成 `cordis-client-runner` 的 `slot-catalog.ts`、`docs/event-producer-consumer*.md`、`agent-preset` 的 `dsh-doc/references/packages.md` | `doc-sync` 的相应检查在新增包后报过期或缺登记 | 仅新增本包对应的一行；无行为影响 | TECH_DESIGN T6 变更文件、§2.3.1 仓库登记 |
 | V-16 | 模型回退：窗口内没有任何 `request/header` 时才用 `modelSelection.lastUsed`，有 header 时，第一条 header 之前的步骤一律为 null（TECH_DESIGN §2.1.2 第 2、3 点，D-02、D-04） | ① route 节点带上 header 的 `reason`。窗口内第一条 header 为 `series` 时，它之前的步骤沿用它的模型。<br>② 新增纯函数 `rememberWindowModel`，视图按会话记录 `WindowFallback { model, fromSeq }`：窗口没有 header 时，记下第一次看到的 `lastUsed` 和窗口最早的步骤 seq；更早的无 header 页加载后，`fromSeq` 随之下移；窗口出现 header 后，记录不再变化。<br>③ `priceSummary` 的第三个参数由 `fallbackModel` 改为 `WindowFallback \| null`，只对 `messageSeq >= fromSeq` 且模型为 null 的步骤生效。<br>④ 这条记录放在插件为每个会话注入的对象 `windowModel` 中（slot 的 inject 结果按会话缓存，见 `packages/client/ui-renderer/src/client/scoped-slots.tsx:166-168`），切走页签再回来时不会丢失 | 代码评审 P1-1（已复现）：header 实时进入原本没有 header 的窗口后，原先已计价的步骤变为未定价，合计下降，违反 AC-10。DSH 重启后的第一次请求（`resume`）、压缩后开始新序列（`series`）和工具集变化（`change`）都会触发。用户 2026-11-14 选择方案 A | ① `series` header 与上一条相同（`agent.ts:695-696`），因此沿用是精确的，不是猜测。<br>② `lastUsed` 只会因新的 header 而改变；窗口仍没有 header 时 `lastUsed` 变化，说明有一条 header 还在路上，所以保留第一次的值。<br>③ 页面打开时窗口里已经有 `resume` 或 `change` header 的情况，仍按 D-04 计为未定价 | TECH_DESIGN §2.1.2、§3 R1；CODE_DESIGN §1（`WindowFallback`、route 数据）、§2、§3（`priceSummary` 签名）、§5（注入对象） |
 | V-17 | README"安装与启动"只有 `pnpm install`、`pnpm dsh web …`（TECH_DESIGN T6，AC-14） | 中英文 README 在两条命令之间加入 `pnpm run build`，并说明拉取本包改动后需要重新构建；同时按 V-16 更新"实现原理"与已知限制中"未定价步骤"的说明，`README.i18n.yaml` 重新记录 | 代码评审 P1-2：`pnpm dsh web` 只提供已构建的产物（根 `README.md:36-41`），干净检出上照做不会出现页签 | 无行为影响 | TECH_DESIGN T6 |
+| V-18 | 同 V-16：设计没有窗口模型记录；V-16 ② 的记录只处理窗口向前加载与实时追加 | `rememberWindowModel` 先检查窗口起点：窗口第一步的 `messageSeq` 大于记录的 `fromSeq` 时，丢弃旧记录，再按 V-16 ② 的规则重新记录（窗口无 header 时记下当前 `lastUsed` 与新起点；有 header 时为 null）。窗口没有任何步骤时保留旧记录 | 代码评审 P1-3（复评 2026-11-15，已复现）：断线重连、缺口修复或重新打开会把窗口整体替换为更晚的尾页（`journal-stream.ts` 的 `type: 'replace'` → `session.ts` `installWindow`）。旧记录仍覆盖新窗口，所有未归属的步骤按切换前的模型计价，金额错误且没有未定价提示，违反 AC-02、AC-05。更早的页只会让起点前移，实时追加不改变起点，节点不会被删除，所以起点后移只能来自窗口替换 | ① 替换后的窗口无 header：按替换时的 `lastUsed` 计价，与 V-16 之前的行为一致。<br>② 替换后的窗口有 header：第一条 header 之前的步骤按 D-04 记为未定价，加载更早的轮次可以消除。<br>③ 未替换的窗口行为不变 | TECH_DESIGN §2.1.2、§3 R1；CODE_DESIGN §2（`rememberWindowModel`）。与 V-16 一并同步 |
 
 ## T1 包骨架与登记
 
@@ -372,3 +374,33 @@ T7 的测试文件已随 T2～T5 交付，本任务只做整体复核，没有�
 
 - P1-2：未在干净检出上执行 README 命令（TC-11 第 1 步）。需要新的 worktree，完成全量 `pnpm install` 和 `pnpm run build`，并在浏览器中观察页签，留待负责人或复评时执行。
 - P1-1 的真实运行复验：重启 DSH 后，打开一个有 `hasMore` 的长会话，停在"花费"页签发送一条消息，合计应增加、不出现未定价。只有自动化证据，未做人工复验。
+
+## 代码评审修复（P1-3）
+
+依据：[代码评审](../review/code_review.md) §0.4（复评 2026-11-15，结论"有条件合并"）。按评审给出的最小修复实施，设计偏差见 V-18，设计文档未改，待编排者安排设计同步。改动尚未提交。
+
+**变更**
+
+- `src/client/cost-pricing.ts`：`rememberWindowModel` 在窗口有步骤且第一步的 `messageSeq` 大于记录的 `fromSeq` 时丢弃旧记录，再按原规则处理；JSDoc 补充窗口替换的说明。
+- README 中英文与 `README.i18n.yaml`："实现原理"补充窗口被替换后重新记录；已知限制"未定价步骤"补充窗口替换的情况；`README.i18n.yaml` 重新记录。
+- 测试：
+  - pricing：替换为更晚的无 header 窗口时，记录变为 `{ model: 'deepseek-v4-pro', fromSeq: 500 }`，两步都按 v4-pro 计价；替换为更晚的含 header 窗口时，记录为 null，header 之前的步骤未定价；窗口没有步骤时保留旧记录。
+  - 视图：`mount` 的 `modelSelection` 投影改为可更新的 store。先挂载无 header 窗口（flash，¥0.0316），再同时更新 `lastUsed` 为 v4-pro 并替换为起点更晚的窗口，断言金额为 ¥0.1440、模型为 deepseek-v4-pro、无未定价提示；另一条用例替换为含 header 的更晚窗口，断言 header 之前的步骤显示未定价。
+
+**验证（2026-11-15 实际执行）**
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm exec vitest run packages/experimental/client-ui-cost --coverage --coverage.include='packages/experimental/client-ui-cost/src/**'` | 8 个文件、119 个用例通过（原 114 个）；语句 199/199、分支 124/124、函数 54/54、行 171/171，均为 100% |
+| 回归验证：`cost-pricing.ts` 临时恢复为 HEAD 版本后运行同一测试 | 新增的 4 条替换用例失败（pricing 2 条、视图 2 条），其余 115 条通过；随后恢复修复 |
+| `tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 首次报 1 处类型成员分隔符（测试中的 `ModelProjection`），改为分号后无错误 |
+| `pnpm run typecheck` | 通过（5/5） |
+| `pnpm run verify-translation-pairing packages/experimental/client-ui-cost/README.md` | 改动后报 2 节未同步，`--write` 重新记录后通过 |
+| `pnpm run verify-export-jsdoc` | 通过 |
+| `pnpm run build`（`build:artifacts` + `build:check`） | 10/10 通过；`lib/client.js` 已包含新逻辑 |
+
+**未验证**
+
+- 真实运行中的窗口替换（断线重连或缺口修复）：只有单元与视图测试证据；"注入对象在重连期间保持不变"仍是评审 §0.4 的静态推断，未做人工复验。
+- `doc-sync`、`test:docs` 未复跑（本次只改了本包 README 两节）。
+- 评审 §0.5 中 P1-1 真实运行复验、TC-11 第 1 步干净检出仍未执行。

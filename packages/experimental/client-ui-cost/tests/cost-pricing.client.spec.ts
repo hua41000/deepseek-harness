@@ -205,4 +205,25 @@ describe('window model record', () => {
     expect(rememberWindowModel(recorded, withHeader, 'deepseek-v4-pro')).toBe(recorded)
     expect(rememberWindowModel(null, withHeader, 'deepseek-v4-pro')).toBeNull()
   })
+
+  it('records the window again when it is replaced by a later page', () => {
+    const recorded = { model: 'deepseek-flash', fromSeq: 100 }
+    const replaced = snapshot([step({ messageSeq: 500, model: null }), step({ turn: 2, messageSeq: 510, model: null })], false)
+    const next = rememberWindowModel(recorded, replaced, 'deepseek-v4-pro')
+    expect(next).toEqual({ model: 'deepseek-v4-pro', fromSeq: 500 })
+    expect(priceSummary(replaced, BUILTIN_PRICES, next)).toMatchObject({ models: ['deepseek-v4-pro'], pricedSteps: 2, unpricedSteps: 0 })
+  })
+
+  it('drops the record when a later replacing page holds a header', () => {
+    const recorded = { model: 'deepseek-flash', fromSeq: 100 }
+    const replaced = snapshot([step({ messageSeq: 500, model: null }), step({ turn: 2, messageSeq: 510 })], true)
+    const next = rememberWindowModel(recorded, replaced, 'deepseek-v4-pro')
+    expect(next).toBeNull()
+    expect(priceSummary(replaced, BUILTIN_PRICES, next)).toMatchObject({ pricedSteps: 1, unpricedSteps: 1 })
+  })
+
+  it('keeps the record when the window holds no step', () => {
+    const recorded = { model: 'deepseek-flash', fromSeq: 100 }
+    expect(rememberWindowModel(recorded, snapshot([], false), 'deepseek-v4-pro')).toBe(recorded)
+  })
 })

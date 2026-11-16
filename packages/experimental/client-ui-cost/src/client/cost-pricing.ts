@@ -79,7 +79,9 @@ interface TurnAccumulator {
  * The first model seen is kept: the last used model changes only through a new
  * header, so a change while the window shows none belongs to a header that has
  * not reached the window yet. Older header-free pages extend the covered range;
- * once a header is loaded the fallback no longer changes.
+ * once a header is loaded the fallback no longer changes. A first step later than
+ * the recorded `fromSeq` means the window was replaced by a later page, so the
+ * record is dropped and rebuilt from this window.
  * @param previous - fallback recorded for the same Session, or null.
  * @param snapshot - attributed steps of the loaded window.
  * @param lastUsed - the Session's last used model, or null before it is known.
@@ -91,9 +93,12 @@ export function rememberWindowModel(
   lastUsed: string | null,
 ): WindowFallback | null {
   const first = snapshot.steps[0]
-  if (snapshot.windowHasHeader || first === undefined) return previous
-  if (previous === null) return lastUsed === null ? null : { model: lastUsed, fromSeq: first.messageSeq }
-  return first.messageSeq < previous.fromSeq ? { model: previous.model, fromSeq: first.messageSeq } : previous
+  if (first === undefined) return previous
+  // Older pages only move the window start earlier and live steps append, so a later start is a replaced window.
+  const kept = previous !== null && first.messageSeq > previous.fromSeq ? null : previous
+  if (snapshot.windowHasHeader) return kept
+  if (kept === null) return lastUsed === null ? null : { model: lastUsed, fromSeq: first.messageSeq }
+  return first.messageSeq < kept.fromSeq ? { model: kept.model, fromSeq: first.messageSeq } : kept
 }
 
 /**
