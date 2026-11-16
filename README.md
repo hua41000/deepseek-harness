@@ -8,6 +8,21 @@ It is built on an **everything-is-a-plugin** architecture and powered by [Cordis
 
 Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
 
+## Homework: session cost estimator
+
+This fork's `homework-1-build-plugin` branch adds `@deepseek-ai/dsh-client-ui-cost`, an experimental Web plugin that adds a Cost tab estimating the RMB cost and cache savings of each turn and of the loaded Session.
+
+- Plugin usage (install, configure, start, verify): [packages/experimental/client-ui-cost](packages/experimental/client-ui-cost/README.md).
+- Requirements, design, reviews, test plan, and implementation report from the my-ai-infra SDD flow: [mai-specs/999-session-cost-estimator](mai-specs/999-session-cost-estimator/BRIEF.md).
+- Known check results: `pnpm run doc-sync` fails 2 gates only because of `mai-specs/` (`mai-specs/README.md` has no Chinese counterpart, and the spec documents cite commit hashes); these failures are accepted for this homework. `pnpm run hygiene` also reports pre-existing `vendor rescope` residue in files this branch does not change.
+
+```sh
+git checkout homework-1-build-plugin
+pnpm install
+pnpm run build
+pnpm dsh web --patch apps/web/tests/client-ui-cost.overlay.yml
+```
+
 ## Developer preview
 
 DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
