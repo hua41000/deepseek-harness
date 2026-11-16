@@ -1,10 +1,104 @@
 # 999 代码评审：会话花费估算插件
 
-> 首轮评审：2026-11-14，范围 `50927f588e..592ad20746` | 复评：2026-11-15，范围 `df25c3b516..4916cdbf28`（分支 `homework-1-build-plugin`，工作区干净） | 需求来源：[PRD](../spec/PRD.md)（AC-01～AC-15） | 设计：[技术方案](../design/TECH_DESIGN.md)、[代码设计附录](../design/CODE_DESIGN.md) | 实现记录：[实现报告](../dev/IMPLEMENTATION_REPORT.md)
+> 首轮评审：2026-11-14，范围 `50927f588e..592ad20746` | 复评：2026-11-15，范围 `df25c3b516..4916cdbf28` | 复评二（P1-3）：2026-11-15，范围 `379f8a9e2b..16e208d159`（分支 `homework-1-build-plugin`，工作区干净） | 需求来源：[PRD](../spec/PRD.md)（AC-01～AC-15） | 设计：[技术方案](../design/TECH_DESIGN.md)、[代码设计附录](../design/CODE_DESIGN.md) | 实现记录：[实现报告](../dev/IMPLEMENTATION_REPORT.md)
 
 [返回需求简报](../BRIEF.md)
 
+## R2. 复评二：P1-3 修复（2026-11-15）
+
+### R2.1 结论
+
+**建议合并**：P0、P1 均为 0 项。P1-3 已关闭；新增 1 项 P2（实现报告状态过期），另有 1 项不阻断合并的待验证风险（§R2.4）。AC-10、AC-14 的结项仍依赖 §0.5 中的真实运行复验，这两项不影响合并判断。
+
+修复与 §0.4 给出的最小修复一致：只在窗口起点后移时丢弃旧记录，其余路径的行为不变。
+
+### R2.2 范围与证据
+
+| 项 | 值 |
+|---|---|
+| 基线 | `379f8a9e2b`（复评提交） |
+| Head | `16e208d159108cdf4f07c912671dcbe0ac579838`（`git rev-parse HEAD`） |
+| 工作区 | `git status --short` 为空 |
+| 提交 | `16e208d159`（P1-3 修复、README、测试、实现报告） |
+| 变更规模 | 7 个文件，+99 / −15 |
+| 重点文件指纹（blob） | `cost-pricing.ts` `fec8e5b4`、`README.md` `e64483fe` |
+
+代码变更只有 `packages/experimental/client-ui-cost/src/client/cost-pricing.ts:90-102`（`rememberWindowModel`）及其 JSDoc（`:82-84`）。调用方 `CostView.tsx:100-104` 与 `priceSummary`（`cost-pricing.ts:111-119`）未改。
+
+上下游核对（静态）：
+
+- 函数取 `snapshot.steps[0]` 作为窗口起点，依赖步骤按 `messageSeq` 升序：`cost-builder.ts:46` 排序，前提成立。
+- "起点后移只来自窗口替换"：`session.ts` 与 `assembly.ts` 中没有删除窗口头部节点的路径（搜索 `evict` / `trim` 无结果）；`prependWindow` 只让起点前移，`append` 不改变起点。
+- 带投影的替换（打开、断线续传）：`session.ts:782-783` 在同一次同步调用中先 `projections.seed`，再 `eventSource.replace`，视图看到新窗口时 `lastUsed` 已是新值。
+
+本次实际执行（仓库根目录，HEAD `16e208d159`）：
+
+| 命令 | 退出码 | 观察 |
+|---|---|---|
+| `pnpm exec vitest run packages/experimental/client-ui-cost --coverage --coverage.include='packages/experimental/client-ui-cost/src/**'` | 0 | 8 个文件、119 个用例通过；语句 199/199、分支 124/124、函数 54/54、行 171/171 |
+| `pnpm exec tsx scripts/run-oxlint.ts packages/experimental/client-ui-cost` | 0 | 无问题 |
+| `pnpm run verify-translation-pairing packages/experimental/client-ui-cost/README.md` | 0 | 中英文 README 一致 |
+| 探针 `C:\Users\hua41\AppData\Local\Temp\claude\ba20098f78ab3678\0ab9a89e-213c-47c3-9a45-70de0d351eea\scratchpad\probe-p13.ts`（`tsx`，只导入受审源码） | 0 | A：§0.4 的复现场景现在得到 `{ v4-pro, 500 }`、模型 `['deepseek-v4-pro']`；B：见 §R2.4；C：替换为起点更早的无 header 窗口，保留旧模型并把 `fromSeq` 下移到 90 |
+
+**未重跑**：`typecheck`、`build`、`verify-export-jsdoc`（实现报告记录已通过；本次代码变更只有一个函数体，且 lint 与测试已通过）、`doc-sync`、真实浏览器复验。实现报告中"临时恢复旧版后 4 条新用例失败"的回归验证未复做；对照 diff，新用例断言的结果（`fromSeq: 500`、null）在旧逻辑下分别为 `{ flash, 100 }` 与旧记录，确实会失败。
+
+### R2.3 P1-3 关闭依据与边界推演
+
+**P1-3：关闭。** 依据：
+
+- 机制：`cost-pricing.ts:98` 在 `first.messageSeq > previous.fromSeq` 时把旧记录视为 null，之后无 header 时按当前 `lastUsed` 重新记录（`:100`），有 header 时返回 null（`:99`），与 §0.4 的最小修复一致。
+- 回归测试：`cost-pricing.client.spec.ts` 新增 3 条（替换为更晚的无 header 窗口、更晚的含 header 窗口、空窗口保留记录）；`cost-view.client.spec.tsx` 把 `modelSelection` 投影改为可更新的 store，新增 2 条，在视图层验证金额由 ¥0.0316 变为 ¥0.1440、无"未定价"，以及含 header 时 header 之前的步骤显示未定价。断言针对用户可见金额与提示，不是实现细节。
+- 探针 A 复现原场景，结果与修复前的正确值一致。
+
+边界推演（静态 + 探针）：
+
+| 情况 | 结果 | 判断 |
+|---|---|---|
+| 替换后起点与 `fromSeq` 相同（例如重新打开、会话没有新内容） | 保留旧记录 | 正确：窗口内容相同 |
+| 替换后起点更早、无 header（探针 C） | 保留旧模型，`fromSeq` 下移 | 正确：若记录之后发生过模型切换，它的 header 必然落在新窗口内，窗口不可能无 header |
+| 替换后起点更早、有 header | 返回旧记录，只作用于 `fromSeq` 之后、第一条 header 之前的步骤 | 正确：这些步骤与旧窗口同属一段无 header 区间；与 P1-3 修复前行为相同 |
+| 替换后起点更晚、有 header | null，header 之前的步骤未定价 | 符合 D-04；README 已知限制已补充这一情况 |
+| 窗口暂无步骤 | 保留旧记录 | 不影响计价；下一次有步骤时按上面规则处理 |
+| 实时 header 到达后又被替换为更晚的无 header 页 | 冻结的旧记录被丢弃，按当前 `lastUsed` 重新记录 | 正确 |
+
+README 中英文"实现原理"与已知限制"未定价步骤"的补充与代码一致；"加载更早的轮次可以消除第二种情况"对窗口替换的情况同样成立。
+
+### R2.4 新发现与待验证事项
+
+#### P2-2 实现报告仍把 P1-3 修复写为"未提交"
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `dev/IMPLEMENTATION_REPORT.md` 任务表"评审修复 P1-3"一行（"完成（未提交）"，提交列为 —）；"代码评审修复（P1-3）"一节首段（"改动尚未提交"） |
+| 现象 | 改动已在 `16e208d159` 提交。报告状态与仓库事实不一致，后续读者会误判工作区状态 |
+| 是否阻断 | 否 |
+| 建议 | 把状态改为"完成"，提交列填 `16e208d159`，删除"改动尚未提交"，并注明"已复评，P1-3 关闭" |
+
+#### 待验证：替换页不带投影、且 `lastUsed` 晚于窗口更新时，会记下旧模型
+
+- 机制：`rememberWindowModel` 对同一窗口保留第一次看到的模型（V-16 ②）。若窗口被替换为起点更晚的无 header 页时，`lastUsed` 还是切换前的值 X，就会记下 `{ X, 新起点 }`；随后 `lastUsed` 更新为 Y 时起点不变，记录不再改变（探针 B：结果为 `{ deepseek-flash, 500 }`）。
+- 发生条件：只有不带投影基线的替换页才可能出现。打开与断线续传的页带投影，并在替换窗口前同步写入（§R2.2），不会出现。缺口修复页（`journal-stream.ts:316-327`，`repairPageRequest`）是否带投影本次没有查清；即使不带，模型切换的投影帧通常会先于缺口修复到达，此时 `lastUsed` 已是新值。另外还需要模型切换的 header 恰好落在缺口内，且切换后对话超过一页。
+- 判断：概率很低，与 V-16 ② 保留首个模型的规则同源，不是本次修复引入的，不阻断合并。
+- 完成条件（二选一）：核实缺口修复页是否携带 `projections`，或者控制流的投影帧是否保证先于缺口修复到达；如果两者都不成立，在 README 已知限制中补一句，或由负责人登记接受。
+
+### R2.5 待验证事项汇总（替代 §0.5 的当前状态）
+
+| 事项 | 状态 | 对合并判断的影响 | 完成条件 |
+|---|---|---|---|
+| P1-3 修复 | **完成**（§R2.3） | — | — |
+| P2-2 实现报告状态 | 未完成 | 不阻断 | 按 §R2.4 更新 |
+| 缺口修复页与 `lastUsed` 的先后顺序 | 未核实 | 不阻断 | 见 §R2.4 |
+| P1-1 真实运行复验 | 未执行 | 不阻断合并；AC-10 结项需要 | 同 §0.5 |
+| P1-3 真实运行复验（断线重连后金额按新模型计价） | 未执行 | 不阻断；只有单元与视图测试证据 | 在同一会话切换模型并对话超过一页后，断开再恢复网络，"花费"页签合计按新模型计价、不出现未定价 |
+| TC-11 第 1 步：干净检出上执行 README 命令 | 未执行 | 不阻断合并；AC-14 结项需要 | 同 §0.5 |
+| 设计同步 V-16、V-17、V-18 | 未完成（实现报告注明待编排者安排） | 不阻断 | TECH_DESIGN §2.1.2、§3 R1 与 CODE_DESIGN §1、§2、§3、§5 更新，包括"窗口被替换后重新记录" |
+| 首轮 §4 中 TC-06、TC-10、TC-12、keyless Web e2e 等 | 状态未变 | 同首轮 | 同首轮 |
+
+---
+
 ## 0. 复评（2026-11-15）
+
+> 以下为第一次复评内容；P1-3 的当前状态以 §R2 为准。
 
 ### 0.1 结论
 
@@ -52,7 +146,7 @@ P1-1 的修复方向正确：`series` header 的推断有日志写入规则作�
 
 ### 0.4 新发现
 
-#### P1-3 窗口被整体替换后，旧的回退记录会按错误的模型计价，且不提示
+#### P1-3 窗口被整体替换后，旧的回退记录会按错误的模型计价，且不提示（复评二：已关闭，见 §R2.3）
 
 | 项 | 内容 |
 |---|---|
